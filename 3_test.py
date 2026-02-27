@@ -1599,51 +1599,53 @@ with tab_model:
                         st.success(f"✅ Modèle **{target}** enregistré avec les interpolateurs !")
 
         with tab4 :
-            col1, col2 = st.columns([1, 2])
-            with col1 : 
-                TEST = st.selectbox("Voir un model", sorted([mname for mname in  st.session_state.MODEL.keys()]), index=0)
-                _model = build_oim_model(st.session_state.MODEL[TEST]["components"])
-                sim = oim.oimSimulator(data=st.session_state.data, model=_model)
-                st.write("$\chi²$ : " + f"{sim.chi2r:.2f}")
-                st.write(sim.model)
-
-
-                col3, col4, col5 = st.columns(3)
-                with col3 : 
-                    st.write("$X$ axis")
-                    X_min = st.number_input("Xmin", key="Xmin CP", value=1.)
-                    X_max = st.number_input("Xmax", key="Xmax CP", value=5.)
-                    
-                with col4 : 
-                    st.write("$V²_Y$")
-                    Vis_Y_min = st.number_input("Ymin", key="Ymin Vis", value=0.)
-                    Vis_Y_max = st.number_input("Ymax", key="Ymax Vis", value=1.)
-                with col5 : 
-                    st.write("$CP_Y$")
-                    CP_Y_min = st.number_input("Ymin", key="Ymin CP", value=-180.)
-                    CP_Y_max = st.number_input("Ymax", key="Ymax CP", value=180.)
-
-
-            with col2 : 
-                fig0, ax0 = sim.plot(["VIS2DATA", "T3PHI"])
-
-                ax0[0].set_xlim([X_min*1e7, X_max*1e7])
-                ax0[0].set_ylim([Vis_Y_min, Vis_Y_max])
-
-                ax0[1].set_xlim([X_min*1e7, X_max*1e7])
-                ax0[1].set_ylim([CP_Y_min, CP_Y_max])
-
-                st.pyplot(fig0)
-
-            fig1 = sim.plotWlTemplate([["VIS2DATA"],["T3PHI"]],xunit="micron",figsize=(22,3))
-            fig1.set_legends(0.5,0.8,"$BASELINE$",["VIS2DATA","T3PHI"],fontsize=10,ha="center")
-            ax = fig1.axes[0]
-            ax.set_ylim(Vis_Y_min, Vis_Y_max)
-            
-            ax2 = fig1.axes[7]
-            ax2.set_ylim(CP_Y_min,CP_Y_max)
-            st.pyplot(fig1)
+            try : 
+                col1, col2 = st.columns([1, 2])
+                with col1 : 
+                    TEST = st.selectbox("Voir un model", sorted([mname for mname in  st.session_state.MODEL.keys()]), index=0)
+                    _model = build_oim_model(st.session_state.MODEL[TEST]["components"])
+                    sim = oim.oimSimulator(data=st.session_state.data, model=_model)
+                    st.write("$\chi²$ : " + f"{sim.chi2r:.2f}")
+                    st.write(sim.model)
     
+    
+                    col3, col4, col5 = st.columns(3)
+                    with col3 : 
+                        st.write("$X$ axis")
+                        X_min = st.number_input("Xmin", key="Xmin CP", value=1.)
+                        X_max = st.number_input("Xmax", key="Xmax CP", value=5.)
+                        
+                    with col4 : 
+                        st.write("$V²_Y$")
+                        Vis_Y_min = st.number_input("Ymin", key="Ymin Vis", value=0.)
+                        Vis_Y_max = st.number_input("Ymax", key="Ymax Vis", value=1.)
+                    with col5 : 
+                        st.write("$CP_Y$")
+                        CP_Y_min = st.number_input("Ymin", key="Ymin CP", value=-180.)
+                        CP_Y_max = st.number_input("Ymax", key="Ymax CP", value=180.)
+    
+    
+                with col2 : 
+                    fig0, ax0 = sim.plot(["VIS2DATA", "T3PHI"])
+    
+                    ax0[0].set_xlim([X_min*1e7, X_max*1e7])
+                    ax0[0].set_ylim([Vis_Y_min, Vis_Y_max])
+    
+                    ax0[1].set_xlim([X_min*1e7, X_max*1e7])
+                    ax0[1].set_ylim([CP_Y_min, CP_Y_max])
+    
+                    st.pyplot(fig0)
+    
+                fig1 = sim.plotWlTemplate([["VIS2DATA"],["T3PHI"]],xunit="micron",figsize=(22,3))
+                fig1.set_legends(0.5,0.8,"$BASELINE$",["VIS2DATA","T3PHI"],fontsize=10,ha="center")
+                ax = fig1.axes[0]
+                ax.set_ylim(Vis_Y_min, Vis_Y_max)
+                
+                ax2 = fig1.axes[7]
+                ax2.set_ylim(CP_Y_min,CP_Y_max)
+                st.pyplot(fig1)
+            except : 
+                st.warning("veuillez definir un modele avant d'acceder à cette fenêtre")
             with tab5 : 
                 liste_de_model = sorted([mname for mname in  st.session_state.MODEL.keys()])
 
@@ -2233,6 +2235,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
