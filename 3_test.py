@@ -1659,7 +1659,7 @@ with tab_model:
 
                     with col1 : 
                         st.write("**Renomer un modèle**")
-                        model_TBR = st.selectbox("Selectionner le modele à renomer", liste_de_model, index=1, key="model TBR")
+                        model_TBR = st.selectbox("Selectionner le modele à renomer", liste_de_model, index=0, key="model TBR")
                         
                         new_name = st.text_input("Nouveau nom", value="test K2000", placeholder="new name")
                         
@@ -1672,7 +1672,7 @@ with tab_model:
 
                     with col2 : 
                         st.write("**Supprimer un modèle**")
-                        model_TBS = st.selectbox("Selectionner le modele à supprimer", liste_de_model, index=1, key="model TBS")
+                        model_TBS = st.selectbox("Selectionner le modele à supprimer", liste_de_model, index=0, key="model TBS")
                         if st.button("Supprimer", key="Supprimer un model", type="primary"):
                             st.session_state.MODEL.pop(model_TBS)
                             
@@ -2240,6 +2240,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
