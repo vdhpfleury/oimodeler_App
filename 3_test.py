@@ -838,7 +838,7 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
             "# ── 4. Emcee MCMC ──────────────────────────────────────",
             f"fitter = oim.oimFitterEmcee(data, model, nwalkers={nwalkers},",
             f"                            dataTypes={dtypes_str})",
-            f'fitter.prepare(init="{init}", samplerFile="/tmp/sampler_emcee.txt")',
+            f'fitter.prepare(init="{init}")',
             f"fitter.run(nsteps={nsteps}, progress=True)",
             "",
             "fitter.printResults()",
@@ -2240,6 +2240,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
