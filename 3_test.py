@@ -1077,7 +1077,7 @@ with tab_model:
             #f_bL = oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L)
             #f_bN = oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N)
 
-            st.session_state.data.setFilter(oim.oimDataFilter([f_wl])#, f_bL, f_bN]))
+            st.session_state.data.setFilter(oim.oimDataFilter([f_wl]))#, f_bL, f_bN]))
 
             wave_data_filtered = np.unique(st.session_state.data.vect_wl)
             
@@ -2233,6 +2233,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
