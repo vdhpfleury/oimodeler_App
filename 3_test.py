@@ -259,6 +259,8 @@ def generate_model_preview(comp_list: list) -> plt.Figure | None:
         ax.set_title('Aperçu (γ=0.2)', fontsize=6)
         ax.set_xlabel('X (px)', fontsize=6)
         ax.set_ylabel('Y (px)', fontsize=6)
+        ax.tick_params(axis='both', which='major', labelsize=6)
+        ax.tick_params(axis='both', which='major', labelsize=6)
         return fig
     except Exception as e:
         st.error(f"Erreur aperçu : {e}")
@@ -2235,6 +2237,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
