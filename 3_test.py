@@ -24,7 +24,7 @@ except ImportError:
     OIM_AVAILABLE = False
     st.error("oimodeler n'est pas installé. Installez-le avec : pip install oimodeler")
     st.stop()
-st.write(dir(oim))
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 0.  Configuration de la page  (DOIT être le premier appel Streamlit)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2233,6 +2233,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
