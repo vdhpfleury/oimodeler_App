@@ -1708,6 +1708,7 @@ with tab_model:
         methode = st.selectbox("Méthode",
                                ["Aléatoire", "Minimisation χ²", "Emcee"],
                                key="fit_method")
+        st.warning("**Minimisation $\chi²$** en cours de programmation")
 
     # ── V-a. Recherche aléatoire ────────────────────────────────────────
     if methode == "Aléatoire":
@@ -2240,6 +2241,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
