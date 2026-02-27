@@ -63,8 +63,8 @@ COMPONENT_REGISTRY: dict[str, dict] = {
     #'oimAEIRing':             {'class': oim.oimAEIRing,             'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Anneau ell. infin. asymétrique (2)'},
     'oimBox':                 {'class': oim.oimBox,                 'params': ['x','y','f','dx','dy'],                                             'description': 'Boîte rectangulaire'},
     #'oimGaussLorentz':        {'class': oim.oimGaussLorentz,        'params': ['x','y','f','elong','pa','hlr','flor'],                              'description': 'Gauss-Lorentzien'},
-    'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Étoile + halo Gauss-Lorentz'},
-    'oimStarHaloIRing':       {'class': oim.oimStarHaloIRing,       'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0','lkr','skw','skwPa'],'description': 'Étoile + halo anneau'},
+    #'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Étoile + halo Gauss-Lorentz'},
+    #'oimStarHaloIRing':       {'class': oim.oimStarHaloIRing,       'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0','lkr','skw','skwPa'],'description': 'Étoile + halo anneau'},
 }
 
 DEFAULT_PARAM_RANGES: dict[str, tuple] = {
@@ -2233,6 +2233,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
