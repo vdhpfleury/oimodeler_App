@@ -52,7 +52,7 @@ COMPONENT_REGISTRY: dict[str, dict] = {
     'oimERing':               {'class': oim.oimERing,               'params': ['x','y','f','elong','pa','din','dout'],                              'description': 'Anneau elliptique'},
     'oimERing2':              {'class': oim.oimERing2,              'params': ['x','y','f','elong','pa','d','w'],                                   'description': 'Anneau elliptique 2'},
     'oimESKIRing':            {'class': oim.oimESKIRing,            'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Anneau ell. infin. asymétrique'},
-    'oimESKGRing':            {'class': oim.oimESKGRing,            'params': ['x','y','f','elong','pa','d','fwhm','skw','skwPa'],                  'description': 'Anneau ell. gaussien asymétrique'},
+    #'oimESKGRing':            {'class': oim.oimESKGRing,            'params': ['x','y','f','elong','pa','d','fwhm','skw','skwPa'],                  'description': 'Anneau ell. gaussien asymétrique'},
     'oimESKRing':             {'class': oim.oimESKRing,             'params': ['x','y','f','elong','pa','din','dout','skw','skwPa'],                'description': 'Anneau elliptique asymétrique'},
     'oimLorentz':             {'class': oim.oimLorentz,             'params': ['x','y','f','fwhm'],                                                'description': 'Pseudo Lorentzien'},
     'oimELorentz':            {'class': oim.oimELorentz,            'params': ['x','y','f','elong','pa','fwhm'],                                    'description': 'Pseudo Lorentzien elliptique'},
@@ -2233,4 +2233,5 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
