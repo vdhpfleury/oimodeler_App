@@ -1044,15 +1044,15 @@ with tab_model:
                                               format="%.2f", key="wl2_max")
         
         st.markdown("##### Binning spectral")
-        cb1, cb2 = st.columns(2)
-        with cb1:
-            st.markdown("**Bande L**")
-            bin_L  = st.slider("Bin L",  1, 20, 1,  key="bin_L")
-            norm_L = st.toggle("Normaliser σ (L)", value=False, key="norm_L")
-        with cb2:
-            st.markdown("**Bande N**")
-            bin_N  = st.slider("Bin N",  1, 20, 1,  key="bin_N")
-            norm_N = st.toggle("Normaliser σ (N)", value=False, key="norm_N")
+        #cb1, cb2 = st.columns(2)
+        #with cb1:
+        #    st.markdown("**Bande L**")
+        #    bin_L  = st.slider("Bin L",  1, 20, 1,  key="bin_L")
+        #    norm_L = st.toggle("Normaliser σ (L)", value=False, key="norm_L")
+        #with cb2:
+        #    st.markdown("**Bande N**")
+        #    bin_N  = st.slider("Bin N",  1, 20, 1,  key="bin_N")
+        #    norm_N = st.toggle("Normaliser σ (N)", value=False, key="norm_N")
         
         
         try:
@@ -1074,10 +1074,10 @@ with tab_model:
 
             f_wl = oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False)
             st.session_state["_last_filter_expr"] = expr
-            f_bL = oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L)
-            f_bN = oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N)
+            #f_bL = oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L)
+            #f_bN = oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N)
 
-            st.session_state.data.setFilter(oim.oimDataFilter([f_wl, f_bL, f_bN]))
+            st.session_state.data.setFilter(oim.oimDataFilter([f_wl])#, f_bL, f_bN]))
 
             wave_data_filtered = np.unique(st.session_state.data.vect_wl)
             
@@ -2233,6 +2233,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
