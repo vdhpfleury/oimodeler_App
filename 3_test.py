@@ -1227,7 +1227,7 @@ with tab_model:
                     with st.spinner("Rendu …", show_time=True):
                         fig_prev = generate_model_preview(st.session_state.components)
                         if fig_prev:
-                            st.pyplot(fig_prev, use_container_width=True)
+                            st.pyplot(fig_prev, use_container_width=False)
                             plt.close(fig_prev)
                     
 
@@ -2235,6 +2235,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
