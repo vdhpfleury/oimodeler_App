@@ -253,12 +253,12 @@ def generate_model_preview(comp_list: list) -> plt.Figure | None:
     if model is None:
         return None
     try:
-        im = model.getImage(128, 1, fromFT=True)
+        im = model.getImage(64, 0.5, fromFT=True)
         fig, ax = plt.subplots(figsize=(2, 2))
         ax.imshow(im ** 0.2, cmap='hot', origin='lower')
-        ax.set_title('Aperçu (γ=0.2)', fontsize=9)
-        ax.set_xlabel('X (px)', fontsize=8)
-        ax.set_ylabel('Y (px)', fontsize=8)
+        ax.set_title('Aperçu (γ=0.2)', fontsize=6)
+        ax.set_xlabel('X (px)', fontsize=6)
+        ax.set_ylabel('Y (px)', fontsize=6)
         return fig
     except Exception as e:
         st.error(f"Erreur aperçu : {e}")
@@ -2235,6 +2235,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
