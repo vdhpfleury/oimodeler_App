@@ -254,7 +254,7 @@ def generate_model_preview(comp_list: list) -> plt.Figure | None:
         return None
     try:
         im = model.getImage(128, 1, fromFT=True)
-        fig, ax = plt.subplots(figsize=(3, 3))
+        fig, ax = plt.subplots(figsize=(2, 2))
         ax.imshow(im ** 0.2, cmap='hot', origin='lower')
         ax.set_title('Aperçu (γ=0.2)', fontsize=9)
         ax.set_xlabel('X (px)', fontsize=8)
@@ -2235,6 +2235,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
