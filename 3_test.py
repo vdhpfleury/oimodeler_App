@@ -1983,9 +1983,9 @@ with tab_model:
 
                     emfit = oim.oimFitterEmcee(st.session_state.data, model_emcee,nwalkers=nb_walkers,dataTypes=emcee_dtypes)
                     sampler_path = Path("/tmp/sampler_emcee.txt")
-                    sampler_path.unlink(missing_ok=True)   # ✅ supprime le fichier s'il existe
+                    sampler_path.unlink(missing_ok=True)   
 
-                    emfit.prepare(init=init_mode,samplerFile=str(sampler_path))
+                    emfit.prepare(init=init_mode)#,samplerFile=str(sampler_path))
                     with st.spinner("MCMC en cours …", show_time=True):
                         emfit.run(nsteps=nb_steps, progress=True)
 
