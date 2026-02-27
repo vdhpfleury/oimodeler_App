@@ -60,7 +60,7 @@ COMPONENT_REGISTRY: dict[str, dict] = {
     'oimQuadLDD':             {'class': oim.oimQuadLDD,             'params': ['x','y','f','d','a1','a2'],                                         'description': 'Limb darkening quadratique'},
     #'oimPowerLawLDD':         {'class': oim.oimPowerLawLDD,         'params': ['x','y','f','d','a'],                                               'description': 'Limb darkening loi de puissance'},
     #'oimSqrtLDD':             {'class': oim.oimSqrtLDD,             'params': ['x','y','f','d','a1','a2'],                                         'description': 'Limb darkening racine carrée'},
-    'oimAEIRing':             {'class': oim.oimAEIRing,             'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Anneau ell. infin. asymétrique (2)'},
+    #'oimAEIRing':             {'class': oim.oimAEIRing,             'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Anneau ell. infin. asymétrique (2)'},
     'oimBox':                 {'class': oim.oimBox,                 'params': ['x','y','f','dx','dy'],                                             'description': 'Boîte rectangulaire'},
     'oimGaussLorentz':        {'class': oim.oimGaussLorentz,        'params': ['x','y','f','elong','pa','hlr','flor'],                              'description': 'Gauss-Lorentzien'},
     'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Étoile + halo Gauss-Lorentz'},
@@ -2233,6 +2233,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
