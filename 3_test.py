@@ -1,5 +1,5 @@
 """
-OIModeler – Application Streamlit
+OIModeler – Streamlit Application
 =======================================================
 
 """
@@ -16,17 +16,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
-# ── Dépendances optionnelles ────────────────────────────────────────────────
+# ── Optional dependencies ────────────────────────────────────────────────
 try:
     import oimodeler as oim
     OIM_AVAILABLE = True
 except ImportError:
     OIM_AVAILABLE = False
-    st.error("oimodeler n'est pas installé. Installez-le avec : pip install oimodeler")
+    st.error("oimodeler is not installed. Install it with: pip install oimodeler")
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 0.  Configuration de la page  (DOIT être le premier appel Streamlit)
+# 0.  Page configuration  (MUST be the first Streamlit call)
 # ═══════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="OIModeler",
@@ -36,35 +36,35 @@ st.set_page_config(
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1.  Registre des composants
+# 1.  Component registry
 # ═══════════════════════════════════════════════════════════════════════════
 COMPONENT_REGISTRY: dict[str, dict] = {
-    'oimPt':                  {'class': oim.oimPt,                  'params': ['x','y','f'],                                                        'description': 'Point source (étoile)'},
-    'oimBackground':          {'class': oim.oimBackground,          'params': ['x','y','f'],                                                        'description': 'Fond uniforme'},
-    'oimUD':                  {'class': oim.oimUD,                  'params': ['x','y','f','d'],                                                    'description': 'Disque uniforme'},
-    'oimEllipse':             {'class': oim.oimEllipse,             'params': ['x','y','f','elong','pa','d'],                                       'description': 'Ellipse uniforme'},
-    'oimGauss':               {'class': oim.oimGauss,               'params': ['x','y','f','fwhm'],                                                'description': 'Disque gaussien'},
-    'oimEGauss':              {'class': oim.oimEGauss,              'params': ['x','y','f','elong','pa','fwhm'],                                    'description': 'Ellipse gaussienne'},
-    'oimIRing':               {'class': oim.oimIRing,               'params': ['x','y','f','d'],                                                    'description': 'Anneau infinitésimal'},
-    'oimEIRing':              {'class': oim.oimEIRing,              'params': ['x','y','f','elong','pa','d'],                                       'description': 'Anneau elliptique infinitésimal'},
-    'oimRing':                {'class': oim.oimRing,                'params': ['x','y','f','din','dout'],                                           'description': 'Anneau'},
-    'oimRing2':               {'class': oim.oimRing2,               'params': ['x','y','f','d','w'],                                               'description': 'IRing convolu avec UD'},
-    'oimERing':               {'class': oim.oimERing,               'params': ['x','y','f','elong','pa','din','dout'],                              'description': 'Anneau elliptique'},
-    'oimERing2':              {'class': oim.oimERing2,              'params': ['x','y','f','elong','pa','d','w'],                                   'description': 'Anneau elliptique 2'},
-    'oimESKIRing':            {'class': oim.oimESKIRing,            'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Anneau ell. infin. asymétrique'},
-    #'oimESKGRing':            {'class': oim.oimESKGRing,            'params': ['x','y','f','elong','pa','d','fwhm','skw','skwPa'],                  'description': 'Anneau ell. gaussien asymétrique'},
-    'oimESKRing':             {'class': oim.oimESKRing,             'params': ['x','y','f','elong','pa','din','dout','skw','skwPa'],                'description': 'Anneau elliptique asymétrique'},
-    'oimLorentz':             {'class': oim.oimLorentz,             'params': ['x','y','f','fwhm'],                                                'description': 'Pseudo Lorentzien'},
-    'oimELorentz':            {'class': oim.oimELorentz,            'params': ['x','y','f','elong','pa','fwhm'],                                    'description': 'Pseudo Lorentzien elliptique'},
-    'oimLinearLDD':           {'class': oim.oimLinearLDD,           'params': ['x','y','f','d','a'],                                               'description': 'Limb darkening linéaire'},
-    'oimQuadLDD':             {'class': oim.oimQuadLDD,             'params': ['x','y','f','d','a1','a2'],                                         'description': 'Limb darkening quadratique'},
-    #'oimPowerLawLDD':         {'class': oim.oimPowerLawLDD,         'params': ['x','y','f','d','a'],                                               'description': 'Limb darkening loi de puissance'},
-    #'oimSqrtLDD':             {'class': oim.oimSqrtLDD,             'params': ['x','y','f','d','a1','a2'],                                         'description': 'Limb darkening racine carrée'},
-    #'oimAEIRing':             {'class': oim.oimAEIRing,             'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Anneau ell. infin. asymétrique (2)'},
-    'oimBox':                 {'class': oim.oimBox,                 'params': ['x','y','f','dx','dy'],                                             'description': 'Boîte rectangulaire'},
-    #'oimGaussLorentz':        {'class': oim.oimGaussLorentz,        'params': ['x','y','f','elong','pa','hlr','flor'],                              'description': 'Gauss-Lorentzien'},
-    #'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Étoile + halo Gauss-Lorentz'},
-    #'oimStarHaloIRing':       {'class': oim.oimStarHaloIRing,       'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0','lkr','skw','skwPa'],'description': 'Étoile + halo anneau'},
+    'oimPt':                  {'class': oim.oimPt,                  'params': ['x','y','f'],                                                        'description': 'Point source (star)'},
+    'oimBackground':          {'class': oim.oimBackground,          'params': ['x','y','f'],                                                        'description': 'Uniform background'},
+    'oimUD':                  {'class': oim.oimUD,                  'params': ['x','y','f','d'],                                                    'description': 'Uniform disk'},
+    'oimEllipse':             {'class': oim.oimEllipse,             'params': ['x','y','f','elong','pa','d'],                                       'description': 'Uniform ellipse'},
+    'oimGauss':               {'class': oim.oimGauss,               'params': ['x','y','f','fwhm'],                                                'description': 'Gaussian disk'},
+    'oimEGauss':              {'class': oim.oimEGauss,              'params': ['x','y','f','elong','pa','fwhm'],                                    'description': 'Gaussian ellipse'},
+    'oimIRing':               {'class': oim.oimIRing,               'params': ['x','y','f','d'],                                                    'description': 'Infinitesimal ring'},
+    'oimEIRing':              {'class': oim.oimEIRing,              'params': ['x','y','f','elong','pa','d'],                                       'description': 'Infinitesimal elliptical ring'},
+    'oimRing':                {'class': oim.oimRing,                'params': ['x','y','f','din','dout'],                                           'description': 'Ring'},
+    'oimRing2':               {'class': oim.oimRing2,               'params': ['x','y','f','d','w'],                                               'description': 'IRing convolved with UD'},
+    'oimERing':               {'class': oim.oimERing,               'params': ['x','y','f','elong','pa','din','dout'],                              'description': 'Elliptical ring'},
+    'oimERing2':              {'class': oim.oimERing2,              'params': ['x','y','f','elong','pa','d','w'],                                   'description': 'Elliptical ring 2'},
+    'oimESKIRing':            {'class': oim.oimESKIRing,            'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Skewed infinitesimal elliptical ring'},
+    #'oimESKGRing':            {'class': oim.oimESKGRing,            'params': ['x','y','f','elong','pa','d','fwhm','skw','skwPa'],                  'description': 'Skewed Gaussian elliptical ring'},
+    'oimESKRing':             {'class': oim.oimESKRing,             'params': ['x','y','f','elong','pa','din','dout','skw','skwPa'],                'description': 'Skewed elliptical ring'},
+    'oimLorentz':             {'class': oim.oimLorentz,             'params': ['x','y','f','fwhm'],                                                'description': 'Pseudo-Lorentzian'},
+    'oimELorentz':            {'class': oim.oimELorentz,            'params': ['x','y','f','elong','pa','fwhm'],                                    'description': 'Elliptical pseudo-Lorentzian'},
+    'oimLinearLDD':           {'class': oim.oimLinearLDD,           'params': ['x','y','f','d','a'],                                               'description': 'Linear limb darkening'},
+    'oimQuadLDD':             {'class': oim.oimQuadLDD,             'params': ['x','y','f','d','a1','a2'],                                         'description': 'Quadratic limb darkening'},
+    #'oimPowerLawLDD':         {'class': oim.oimPowerLawLDD,         'params': ['x','y','f','d','a'],                                               'description': 'Power-law limb darkening'},
+    #'oimSqrtLDD':             {'class': oim.oimSqrtLDD,             'params': ['x','y','f','d','a1','a2'],                                         'description': 'Square-root limb darkening'},
+    #'oimAEIRing':             {'class': oim.oimAEIRing,             'params': ['x','y','f','elong','pa','d','skw','skwPa'],                         'description': 'Skewed infinitesimal elliptical ring (2)'},
+    'oimBox':                 {'class': oim.oimBox,                 'params': ['x','y','f','dx','dy'],                                             'description': 'Rectangular box'},
+    #'oimGaussLorentz':        {'class': oim.oimGaussLorentz,        'params': ['x','y','f','elong','pa','hlr','flor'],                              'description': 'Gauss-Lorentzian'},
+    #'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Star + Gauss-Lorentz halo'},
+    #'oimStarHaloIRing':       {'class': oim.oimStarHaloIRing,       'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0','lkr','skw','skwPa'],'description': 'Star + ring halo'},
 }
 
 DEFAULT_PARAM_RANGES: dict[str, tuple] = {
@@ -87,31 +87,31 @@ DEFAULT_PARAM_INIT: dict[str, float] = {
     'kc': 1., 'ks': 1., 'wl0': 3e-6, 'lkr': 0.5,
 }
 
-# Palette de couleurs automatique par composante
+# Automatic color palette per component
 COMP_COLORS = ['blue', 'orange', 'green', 'purple', 'brown', 'pink', 'cyan']
 COMP_STYLES = ['-', '--', ':', '-.', '-', '--', ':']
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 2.  Initialisation centralisée du session_state
+# 2.  Centralised session_state initialisation
 # ═══════════════════════════════════════════════════════════════════════════
 _DEFAULTS: dict = {
-    # Composants en cours de configuration
+    # Components being configured
     'components':         [],
     'active_comp_name':   None,
-    # Bibliothèque de modèles enregistrés
+    # Model library
     'MODEL':              {},
-    # Données OIFITS
+    # OIFITS data
     'loaded_files':       {},
     'data':               None,
-    # Résultats d'optimisation
+    # Optimisation results
     'optimization_done':  False,
     'best_params':        None,
     'best_chi2':          None,
     'history':            [],
     'best_model':         None,
-    # Résultats χ²
+    # χ² results
     'chi2_result':        None,
-    # Résultats Emcee
+    # Emcee results
     'Emcee_Result':       None,
 }
 for _k, _v in _DEFAULTS.items():
@@ -119,17 +119,17 @@ for _k, _v in _DEFAULTS.items():
         st.session_state[_k] = _v
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3.  Classes & fonctions métier
+# 3.  Business classes & functions
 # ═══════════════════════════════════════════════════════════════════════════
 
 class ComponentConfig:
-    """Encapsule la configuration d'un composant oimodeler."""
+    """Encapsulates the configuration of an oimodeler component."""
 
     def __init__(self, component_type: str, name: str | None = None,
                  initial_values: dict | None = None, param_ranges: dict | None = None,
                  free_params: list | None = None, interpolators: dict | None = None):
         if component_type not in COMPONENT_REGISTRY:
-            raise ValueError(f"Type de composant inconnu : {component_type}")
+            raise ValueError(f"Unknown component type: {component_type}")
         self.component_type  = component_type
         self.name            = name or component_type
         self.component_class = COMPONENT_REGISTRY[component_type]['class']
@@ -158,7 +158,7 @@ class ComponentConfig:
                         wave_data: np.ndarray | None = None):
         full = self._full_params(param_values)
 
-        # Interpolateurs
+        # Interpolators
         for p, cfg in self.interpolators.items():
             if not cfg.get('enabled', False):
                 continue
@@ -172,7 +172,7 @@ class ComponentConfig:
                                         values=cfg['values'])
         instance = self.component_class(**full)
 
-        # Appliquer libre/fixe + bornes
+        # Apply free/fixed + bounds
         for param_name, param_obj in instance.params.items():
             short = param_name.split('_')[-1]
             if short in self.param_names:
@@ -190,7 +190,7 @@ class ComponentConfig:
         }
 
 
-# ── Helpers session_state ────────────────────────────────────────────────
+# ── session_state helpers ────────────────────────────────────────────
 
 def get_comp(name: str) -> dict | None:
     return next((c for c in st.session_state.components if c['name'] == name), None)
@@ -210,7 +210,7 @@ def make_comp_dict(comp_type: str, comp_name: str) -> dict:
 
 
 def read_widget_values_into_comp(comp: dict):
-    """Lit les valeurs des widgets et les stocke dans le dict composant."""
+    """Reads widget values and stores them in the component dict."""
     for param in comp['params']:
         k_init = f"{comp['name']}_{param}_init"
         k_min  = f"{comp['name']}_{param}_min"
@@ -228,9 +228,9 @@ def read_widget_values_into_comp(comp: dict):
                 comp['free_params'].remove(param)
 
 
-# ── Génération de modèles ────────────────────────────────────────────────
+# ── Model generation ────────────────────────────────────────────────
 def build_oim_model(comp_list: list) -> oim.oimModel | None:
-    """Instancie un oimModel à partir d'une liste de dicts composant."""
+    """Instantiates an oimModel from a list of component dicts."""
     if not comp_list:
         return None
     try:
@@ -239,13 +239,13 @@ def build_oim_model(comp_list: list) -> oim.oimModel | None:
                 component_type=c['type'], name=c['name'],
                 initial_values=c['initial_values'], param_ranges=c['param_ranges'],
                 free_params=c['free_params'],
-                interpolators=c.get('interpolators', {}),   # ✅ ajout
+                interpolators=c.get('interpolators', {}),
             ).create_instance()
             for c in comp_list
         ]
         return oim.oimModel(*instances)
     except Exception as e:
-        st.error(f"Erreur construction modèle : {e}")
+        st.error(f"Model construction error: {e}")
         return None
     
 def generate_model_preview(comp_list: list) -> plt.Figure | None:
@@ -257,23 +257,22 @@ def generate_model_preview(comp_list: list) -> plt.Figure | None:
         N = im.shape[0]
         fig, ax = plt.subplots(figsize=(2, 2))
         ax.imshow(im ** 0.2, cmap='hot', origin='lower', extent=[-N//2, N//2, -N//2, N//2])
-        ax.set_title('Aperçu (γ=0.2)', fontsize=6)
+        ax.set_title('Preview (γ=0.2)', fontsize=6)
         ax.set_xlabel('X (px)', fontsize=6)
         ax.set_ylabel('Y (px)', fontsize=6)
         ax.tick_params(axis='both', which='major', labelsize=6)
         ax.tick_params(axis='both', which='major', labelsize=6)
-        
 
         return fig
     except Exception as e:
-        st.error(f"Erreur aperçu : {e}")
+        st.error(f"Preview error: {e}")
         return None
 
 
-# ── Résultats & export ───────────────────────────────────────────────────
+# ── Results & export ───────────────────────────────────────────────────────
 
 def get_result_df(model_or_fit, is_fit: bool = False) -> tuple[float | None, pd.DataFrame]:
-    """Retourne (chi2r, DataFrame des paramètres)."""
+    """Returns (chi2r, parameter DataFrame)."""
     buf = io.StringIO()
     with redirect_stdout(buf):
         if is_fit:
@@ -291,36 +290,32 @@ def get_result_df(model_or_fit, is_fit: bool = False) -> tuple[float | None, pd.
         at_min   = (p.min is not None) and abs(p.value - p.min) < 1e-10
         at_max   = (p.max is not None) and abs(p.value - p.max) < 1e-10
         rows.append({
-            "Paramètre":   name,
-            "Valeur":      p.value,
-            "Incertitude": p.error,
+            "Parameter":   name,
+            "Value":       p.value,
+            "Uncertainty": p.error,
             "Min":         p.min,
             "Max":         p.max,
-            "Libre":       p.free,
-            "Au bord":     at_min or at_max,
+            "Free":        p.free,
+            "At bound":    at_min or at_max,
         })
     return chi2r, pd.DataFrame(rows)
 
 def update_model_from_fit(new_name: str, base_name: str, fit_model, chi2r: float | None = None) -> dict:
     if base_name not in st.session_state.MODEL:
-        raise KeyError(f"Modèle base '{base_name}' introuvable.")
+        raise KeyError(f"Base model '{base_name}' not found.")
     updated = copy.deepcopy(st.session_state.MODEL[base_name])
     params  = fit_model.getParameters()
 
     for full_name, p in params.items():
         parts = full_name.split("_")
-        # ✅ L'index est dans parts[0] : "c1" → 0
         try:
             comp_index = int(parts[0][1:]) - 1
         except (ValueError, IndexError):
             continue
 
-        # ✅ Le nom du paramètre est TOUT ce qui suit "c{n}_{TypeAbbr}_"
-        # ex: "c1_ESKIR_skwPa" → type_part="ESKIR", param_name="skwPa"
-        # ex: "c1_UD_d"        → type_part="UD",    param_name="d"
         if len(parts) < 3:
             continue
-        param_name = "_".join(parts[2:])   # ✅ au lieu de parts[-1]
+        param_name = "_".join(parts[2:])
 
         if 0 <= comp_index < len(updated["components"]):
             comp = updated["components"][comp_index]
@@ -340,10 +335,11 @@ def update_model_from_fit(new_name: str, base_name: str, fit_model, chi2r: float
 
     st.session_state.MODEL[new_name] = updated
     return updated
-# ── Import de modèle depuis CSV ─────────────────────────────────────────
 
-# Table de correspondance abréviation → nom complet oimodeler
-# (les abréviations viennent du nommage automatique oimodeler : c1_UD_d, c2_EG_fwhm…)
+# ── Import model from CSV ─────────────────────────────────────────
+
+# Abbreviation → full oimodeler name mapping
+# (abbreviations come from oimodeler's automatic naming: c1_UD_d, c2_EG_fwhm…)
 _SHORT_TO_OIM: dict[str, str] = {
     'Pt':      'oimPt',
     'Bg':      'oimBackground',
@@ -376,14 +372,14 @@ _SHORT_TO_OIM: dict[str, str] = {
 
 def _resolve_comp_type(abbreviation: str) -> str | None:
     """
-    Tente de retrouver le type oimodeler complet depuis une abréviation CSV.
-    Stratégie : correspondance exacte dans _SHORT_TO_OIM, puis recherche
-    insensible à la casse sur les noms complets du registre.
+    Attempts to find the full oimodeler type from a CSV abbreviation.
+    Strategy: exact match in _SHORT_TO_OIM, then case-insensitive search
+    on full names in the registry.
     """
-    # 1. Table directe
+    # 1. Direct table lookup
     if abbreviation in _SHORT_TO_OIM:
         return _SHORT_TO_OIM[abbreviation]
-    # 2. Correspondance insensible à la casse sur les noms complets
+    # 2. Case-insensitive match on full names
     abbr_lower = abbreviation.lower()
     for full_name in COMPONENT_REGISTRY:
         if full_name.lower().endswith(abbr_lower):
@@ -393,62 +389,59 @@ def _resolve_comp_type(abbreviation: str) -> str | None:
 
 def parse_csv_to_model(df: pd.DataFrame) -> dict | tuple[None, str]:
     """
-    Convertit un DataFrame issu d'un CSV de résultats en structure de modèle
-    compatible avec st.session_state.MODEL.
+    Converts a DataFrame from a results CSV into a model structure
+    compatible with st.session_state.MODEL.
 
-    Format attendu des colonnes (insensibles à la casse) :
-        Paramètre | Valeur | Incertitude | Min | Max | Libre | Au bord
+    Expected column format (case-insensitive):
+        Parameter | Value | Uncertainty | Min | Max | Free | At bound
 
-    Le champ « Paramètre » a la forme  c{index}_{ShortType}_{param}
-    ex : c1_Pt_f, c2_EG_fwhm, c3_UD_d …
+    The "Parameter" field has the form  c{index}_{ShortType}_{param}
+    e.g.: c1_Pt_f, c2_EG_fwhm, c3_UD_d …
 
-    Retourne soit le dict modèle, soit (None, message_erreur).
+    Returns either the model dict, or (None, error_message).
     """
-    # ── Normaliser les noms de colonnes ────────────────────────────────
+    # ── Normalise column names ────────────────────────────────────────
     rename_map = {}
     for col in df.columns:
         cl = col.strip().lower()
         if cl in ('paramètre', 'parametre', 'parameter', 'param'):
-            rename_map[col] = 'Paramètre'
+            rename_map[col] = 'Parameter'
         elif cl in ('valeur', 'value', 'val'):
-            rename_map[col] = 'Valeur'
+            rename_map[col] = 'Value'
         elif cl in ('incertitude', 'uncertainty', 'error', 'erreur'):
-            rename_map[col] = 'Incertitude'
+            rename_map[col] = 'Uncertainty'
         elif cl == 'min':
             rename_map[col] = 'Min'
         elif cl == 'max':
             rename_map[col] = 'Max'
         elif cl in ('libre', 'free'):
-            rename_map[col] = 'Libre'
+            rename_map[col] = 'Free'
         elif cl in ('au bord', 'at bound', 'aubord', 'atbound'):
-            rename_map[col] = 'Au bord'
+            rename_map[col] = 'At bound'
     df = df.rename(columns=rename_map)
 
-    required = {'Paramètre', 'Valeur', 'Min', 'Max', 'Libre'}
+    required = {'Parameter', 'Value', 'Min', 'Max', 'Free'}
     missing  = required - set(df.columns)
     if missing:
-        return None, f"Colonnes manquantes dans le CSV : {', '.join(missing)}"
+        return None, f"Missing columns in CSV: {', '.join(missing)}"
 
-    # ── Parser chaque ligne ────────────────────────────────────────────
-    # Regrouper par composant (c1, c2, …)
-    comp_data: dict[int, dict] = {}   # index → {type_abbr, params…}
+    # ── Parse each row ────────────────────────────────────────────────
+    comp_data: dict[int, dict] = {}
 
     for _, row in df.iterrows():
-        param_full = str(row['Paramètre']).strip()
-        # Forme attendue : c{n}_{TypeAbbr}_{paramName}
+        param_full = str(row['Parameter']).strip()
         parts = param_full.split('_')
         if len(parts) < 3:
-            return None, (f"Format de paramètre invalide : « {param_full} »\n"
-                          f"Attendu : c{{n}}_{{Type}}_{{param}}  (ex: c1_UD_d)")
+            return None, (f"Invalid parameter format: « {param_full} »\n"
+                          f"Expected: c{{n}}_{{Type}}_{{param}}  (e.g.: c1_UD_d)")
         try:
-            comp_idx = int(parts[0][1:])   # "c1" → 1
+            comp_idx = int(parts[0][1:])
         except ValueError:
-            return None, f"Index de composant illisible dans « {param_full} »"
+            return None, f"Unreadable component index in « {param_full} »"
 
         type_abbr  = parts[1]
-        param_name = '_'.join(parts[2:])   # gère les noms composés type skwPa
+        param_name = '_'.join(parts[2:])
 
-        # Valeurs numériques
         def _flt(val, fallback=0.):
             try:
                 return float(val)
@@ -460,12 +453,12 @@ def parse_csv_to_model(df: pd.DataFrame) -> dict | tuple[None, str]:
                 return val
             if isinstance(val, (int, float)):
                 return bool(val)
-            return str(val).strip().lower() in ('true', '1', 'oui', 'yes', 'libre')
+            return str(val).strip().lower() in ('true', '1', 'oui', 'yes', 'libre', 'free')
 
-        value = _flt(row['Valeur'])
+        value = _flt(row['Value'])
         lo    = _flt(row['Min'],  DEFAULT_PARAM_RANGES.get(param_name, (-1e9, 1e9))[0])
         hi    = _flt(row['Max'],  DEFAULT_PARAM_RANGES.get(param_name, (-1e9, 1e9))[1])
-        free  = _bool(row.get('Libre', False))
+        free  = _bool(row.get('Free', False))
 
         if comp_idx not in comp_data:
             comp_data[comp_idx] = {'type_abbr': type_abbr, 'params': {}}
@@ -473,16 +466,16 @@ def parse_csv_to_model(df: pd.DataFrame) -> dict | tuple[None, str]:
             'value': value, 'min': lo, 'max': hi, 'free': free
         }
 
-    # ── Construire la liste de composants ──────────────────────────────
+    # ── Build component list ──────────────────────────────────────────
     components = []
     for idx in sorted(comp_data.keys()):
         cd         = comp_data[idx]
         type_abbr  = cd['type_abbr']
         oim_type   = _resolve_comp_type(type_abbr)
         if oim_type is None:
-            return None, (f"Type de composant inconnu : « {type_abbr} » "
-                          f"(composant c{idx}).\n"
-                          f"Types reconnus : {', '.join(_SHORT_TO_OIM.keys())}")
+            return None, (f"Unknown component type: « {type_abbr} » "
+                          f"(component c{idx}).\n"
+                          f"Recognised types: {', '.join(_SHORT_TO_OIM.keys())}")
 
         param_names = COMPONENT_REGISTRY[oim_type]['params']
         init_values = {}
@@ -497,11 +490,9 @@ def parse_csv_to_model(df: pd.DataFrame) -> dict | tuple[None, str]:
                 if pd_row['free']:
                     free_params.append(p)
             else:
-                # Paramètre absent du CSV : valeurs par défaut
                 init_values[p]  = DEFAULT_PARAM_INIT.get(p, 0.)
                 param_ranges[p] = DEFAULT_PARAM_RANGES.get(p, (0., 100.))
 
-        # Nom du composant : c{idx}_{type_abbr}
         comp_name = f"c{idx}_{type_abbr}"
 
         components.append({
@@ -515,12 +506,12 @@ def parse_csv_to_model(df: pd.DataFrame) -> dict | tuple[None, str]:
         })
 
     if not components:
-        return None, "Aucun composant trouvé dans le CSV."
+        return None, "No components found in the CSV."
 
     return {'components': components}, ""
 
 
-# ── Optimisation aléatoire ───────────────────────────────────────────────
+# ── Random optimisation ───────────────────────────────────────────────────
 
 def random_search(data, component_configs: list, n_runs: int = 100,
                   seed: int | None = None, wave_data=None) -> tuple:
@@ -548,9 +539,9 @@ def random_search(data, component_configs: list, n_runs: int = 100,
             if chi2r < best_chi2:
                 best_chi2   = chi2r
                 best_params = run_params
-                status.success(f"✓ Run {run+1}/{n_runs} – nouveau meilleur χ²ᵣ = {chi2r:.4f}")
+                status.success(f"✓ Run {run+1}/{n_runs} – new best χ²ᵣ = {chi2r:.4f}")
         except Exception as e:
-            st.warning(f"Run {run+1} ignoré : {e}")
+            st.warning(f"Run {run+1} skipped: {e}")
         progress.progress((run + 1) / n_runs)
 
     progress.empty()
@@ -558,7 +549,7 @@ def random_search(data, component_configs: list, n_runs: int = 100,
     return best_params, best_chi2, history
 
 
-# ── Utilitaires graphiques ───────────────────────────────────────────────
+# ── Plotting utilities ───────────────────────────────────────────────────
 
 def plot_oimdata(oim_data, data_type: str,
                  xmin: float, xmax: float, ymin: float, ymax: float,
@@ -566,7 +557,7 @@ def plot_oimdata(oim_data, data_type: str,
 
     fig = plt.figure(figsize=(5, 4))
 
-    # Tracé données complètes (fond, transparent)
+    # Full data plot (background, transparent)
     ax_bg = fig.add_subplot(111, projection='oimAxes')
     try:
         oim_data.useFilter = False
@@ -575,13 +566,13 @@ def plot_oimdata(oim_data, data_type: str,
     except Exception:
         pass
 
-    # Tracé données filtrées (par-dessus, opaque) — nouvel axe superposé
+    # Filtered data plot (foreground, opaque) — new overlaid axis
     ax_fg = fig.add_subplot(111, projection='oimAxes')
     try:
         oim_data.useFilter = True
         ax_fg.oiplot(oim_data, "EFF_WAVE", data_type, alpha=1.0,
                      xunit="micron", color="byBaseline", errorbar=False)
-        ax_fg.patch.set_visible(False)   # rendre le fond transparent
+        ax_fg.patch.set_visible(False)
     except Exception:
         pass
 
@@ -593,8 +584,8 @@ def plot_oimdata(oim_data, data_type: str,
 
 def extract_model_image(model, img_size=64, img_scale=0.5, wl_value=None) -> np.ndarray:
     """
-    Extrait et somme les images de chaque composante individuellement.
-    Utilise showModel(fig, ax_array, data) et ferme la figure immédiatement.
+    Extracts and sums individual component images.
+    Uses showModel(fig, ax_array, data) and closes the figure immediately.
     """
     data_sum = None
     for comp in model.components:
@@ -606,7 +597,7 @@ def extract_model_image(model, img_size=64, img_scale=0.5, wl_value=None) -> np.
             else:
                 fig_c, _, data_c = m_single.showModel(img_size, img_scale,
                                                        fromFT=True)
-            plt.close(fig_c)   # fermer tout de suite pour ne pas accumuler
+            plt.close(fig_c)
 
             if data_sum is None:
                 data_sum = data_c.copy()
@@ -618,23 +609,24 @@ def extract_model_image(model, img_size=64, img_scale=0.5, wl_value=None) -> np.
     if data_sum is None:
         data_sum = np.zeros((1, 1, img_size, img_size))
     return data_sum
+
 def copy_axes_lines(src_ax, dst_ax):
     for line in src_ax.get_lines():
         dst_ax.plot(line.get_xdata(), line.get_ydata(),
                     linestyle=line.get_linestyle(),
                     marker=line.get_marker(),
                     color=line.get_color(),
-                    label=line.get_label())   # ✅ ajout
+                    label=line.get_label())
     dst_ax.set_xlabel(src_ax.get_xlabel())
     dst_ax.set_ylabel(src_ax.get_ylabel())
     dst_ax.grid(True)
 
 def decompose_model_flux(model: oim.oimModel, data) -> dict:
     """
-    Pour chaque composante du modèle, crée un oimModel individuel
-    et un oimSimulator associé, puis calcule les données simulées.
+    For each model component, creates an individual oimModel
+    and associated oimSimulator, then computes simulated data.
     
-    Retourne un dict :
+    Returns a dict:
         {
             'full':  {'model': oimModel, 'sim': oimSimulator},
             'c1_UD': {'model': oimModel, 'sim': oimSimulator},
@@ -644,14 +636,13 @@ def decompose_model_flux(model: oim.oimModel, data) -> dict:
     """
     result = {}
 
-    # ── Modèle complet ───────────────────────────────────────────────
+    # ── Full model ───────────────────────────────────────────────
     sim_full = oim.oimSimulator(data=data, model=model)
     sim_full.compute(computeChi2=False, computeSimulatedData=True)
     result['full'] = {'model': model, 'sim': sim_full}
 
-    # ── Une composante à la fois ─────────────────────────────────────
+    # ── One component at a time ──────────────────────────────────
     for comp in model.components:
-        # Le nom de la composante oimodeler (ex: "c1_UD", "c2_EG")
         comp_name = comp.name if hasattr(comp, 'name') else type(comp).__name__
 
         m_single = oim.oimModel(comp)
@@ -664,31 +655,31 @@ def decompose_model_flux(model: oim.oimModel, data) -> dict:
 
 def plot_flux_decomposition(decomp: dict, data) -> plt.Figure:
     """
-    Affiche FLUXDATA pour les données, le modèle complet,
-    et chaque composante individuellement.
+    Displays FLUXDATA for observations, the full model,
+    and each individual component.
     """
     fig = plt.figure(figsize=(9, 5))
     ax  = plt.subplot(projection='oimAxes')
 
-    # ── Données observées ────────────────────────────────────────────
+    # ── Observed data ────────────────────────────────────────────
     try:
         data.useFilter = True
         ax.oiplot(data, "EFF_WAVE", "FLUXDATA",
                   errorbar=True, xunit='micron',
                   kwargs_error={"alpha": 0.3},
-                  color='grey', label='Données')
+                  color='grey', label='Data')
     except Exception as e:
         pass
 
-    # ── Modèle complet ───────────────────────────────────────────────
+    # ── Full model ────────────────────────────────────────────────
     try:
         ax.oiplot(decomp['full']['sim'].simulatedData,
                   "EFF_WAVE", "FLUXDATA",
-                  xunit='micron', color='red', lw=2, label='Modèle complet')
+                  xunit='micron', color='red', lw=2, label='Full model')
     except Exception as e:
         pass
 
-    # ── Composantes individuelles ────────────────────────────────────
+    # ── Individual components ─────────────────────────────────────
     comp_keys = [k for k in decomp if k != 'full']
     for i, key in enumerate(comp_keys):
         color = COMP_COLORS[i % len(COMP_COLORS)]
@@ -708,15 +699,15 @@ def plot_flux_decomposition(decomp: dict, data) -> plt.Figure:
     plt.tight_layout()
     return fig
 
-# ── Génère code Python ───────────────────────────────────────────────
+# ── Generate Python code ───────────────────────────────────────────────
 def generate_fitting_code(method: str, result: dict, data_filename: str,
                            model_comps: list, filter_params: dict) -> str:
     """
-    Génère le code Python reproductible pour une minimisation χ² ou Emcee.
+    Generates reproducible Python code for χ² minimisation or Emcee.
     """
     lines = []
 
-    # ── En-tête ───────────────────────────────────────────────────────
+    # ── Header ────────────────────────────────────────────────────
     lines += [
         "import numpy as np",
         "import oimodeler as oim",
@@ -728,15 +719,15 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
         "",
     ]
 
-    # ── Chargement des données ────────────────────────────────────────
+    # ── Data loading ──────────────────────────────────────────────
     lines += [
-        "# ── 1. Chargement des données ──────────────────────────────",
+        "# ── 1. Load data ───────────────────────────────────────────",
         f'data = oim.oimData("{data_filename}")',
         "",
     ]
 
-    # ── Filtre spectral ───────────────────────────────────────────────
-    lines += ["# ── 2. Filtrage spectral ───────────────────────────────"]
+    # ── Spectral filter ───────────────────────────────────────────
+    lines += ["# ── 2. Spectral filtering ──────────────────────────────"]
     expr      = filter_params.get("expr", "")
     bin_L     = filter_params.get("bin_L", 1)
     bin_N     = filter_params.get("bin_N", 1)
@@ -755,8 +746,8 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
         lines.append("data.setFilter(oim.oimDataFilter([f_bL, f_bN]))")
     lines += ["data.useFilter = True", ""]
 
-    # ── Construction du modèle ────────────────────────────────────────
-    lines += ["# ── 3. Construction du modèle ──────────────────────────"]
+    # ── Model construction ────────────────────────────────────────
+    lines += ["# ── 3. Build model ─────────────────────────────────────"]
     comp_var_names = []
     for i, c in enumerate(model_comps):
         vname     = f"comp{i+1}"
@@ -765,7 +756,7 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
                     c.get("params", list(c["initial_values"].keys())))
         interps   = c.get("interpolators", {})
 
-        # Paramètres scalaires (non interpolés)
+        # Scalar parameters (non-interpolated)
         scalar_params = {
             p: c["initial_values"].get(p, 0.)
             for p in params
@@ -773,14 +764,14 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
         }
         param_str = ", ".join(f"{p}={v!r}" for p, v in scalar_params.items())
 
-        # Interpolateurs
+        # Interpolators
         for p, cfg in interps.items():
             if not cfg.get("enabled", False):
                 continue
             if cfg["type"] == "blackbody":
                 wl_var = f"wl_{vname}_{p}"
                 lines += [
-                    f"{wl_var} = np.linspace(1e-6, 5e-6, 200)  # adapter si besoin",
+                    f"{wl_var} = np.linspace(1e-6, 5e-6, 200)  # adjust if needed",
                     f"interp_{vname}_{p} = oim.oimInterp('starWl', "
                     f"temp={cfg['temp']}, dist={cfg['dist']}, "
                     f"lum={cfg['lum']}, wl={wl_var})",
@@ -793,16 +784,14 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
                     f"interp_{vname}_{p} = oim.oimInterp('{var_key}', "
                     f"{var_key}=np.array({wl_arr}), values=np.array({val_arr}))",
                 ]
-            # Remplacer la valeur scalaire par l'interpolateur dans param_str
             param_str += f", {p}=interp_{vname}_{p}"
 
         lines.append(f"{vname} = oim.{comp_type}({param_str})")
 
-        # Bornes et libre/fixe
+        # Bounds and free/fixed
         for p in params:
             lo, hi = c["param_ranges"].get(p, (None, None))
             free   = p in c.get("free_params", [])
-            # Nom complet du paramètre oimodeler (ex: c1_UD_d)
             lines += [
                 f"{vname}.getParameters()['{c['name']}_{p}'].set(min={lo!r}, max={hi!r}, free={free})"
             ]
@@ -812,14 +801,14 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
     comp_args = ", ".join(comp_var_names)
     lines += [f"model = oim.oimModel({comp_args})", ""]
 
-    # ── Fitting ───────────────────────────────────────────────────────
+    # ── Fitting ───────────────────────────────────────────────────
     dtypes_key = "opt_dtypes" if method == "chi2" else "emcee_dtypes"
     dtypes     = result.get("dtypes", ["VIS2DATA", "T3PHI"])
     dtypes_str = repr(dtypes)
 
     if method == "chi2":
         lines += [
-            "# ── 4. Minimisation χ² ─────────────────────────────────",
+            "# ── 4. χ² minimisation ──────────────────────────────────",
             f"fitter = oim.oimFitterMinimize(data, model, dataTypes={dtypes_str})",
             "fitter.prepare()",
             "fitter.run()",
@@ -853,56 +842,56 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
     return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 4.  Interface utilisateur
+# 4.  User interface
 # ═══════════════════════════════════════════════════════════════════════════
 st.title("🔭 OIModeler")
 
-tab_home, tab_visu, tab_model = st.tabs(["📋 Présentation", "🔬 Visualisation des composants", "⚙️ Modélisation"])
+tab_home, tab_visu, tab_model = st.tabs(["📋 Overview", "🔬 Component Visualiser", "⚙️ Modelling"])
 
 # ─────────────────────────────────────────────────────────────────────────
-# TAB 0 – Présentation
+# TAB 0 – Overview
 # ─────────────────────────────────────────────────────────────────────────
 with tab_home:
     st.markdown("""
-    Interface interactive pour la modélisation de données d'interférométrie optique
-    au format **OIFITS**, reposant sur la bibliothèque Python *oimodeler*.
+    Interactive interface for modelling optical interferometry data
+    in **OIFITS** format, built on the *oimodeler* Python library.
     """)
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.info("**🔬 Visualiseur de composantes**\n\n"
-                "Explorez et paramétrez interactivement chaque composante géométrique. "
-                "Visualisez l'image en temps réel et générez le code Python associé.")
+        st.info("**🔬 Component Visualiser**\n\n"
+                "Interactively explore and parameterise each geometric component. "
+                "Visualise the image in real time and generate the associated Python code.")
     with c2:
-        st.info("**📂 Chargement & Filtrage**\n\n"
-                "Importez des fichiers OIFITS, appliquez des filtres spectraux "
-                "et visualisez VIS², T3PHI, FLUXDATA.")
+        st.info("**📂 Loading & Filtering**\n\n"
+                "Import OIFITS files, apply spectral filters "
+                "and visualise VIS², T3PHI, FLUXDATA.")
     with c3:
-        st.info("**📐 Modélisation & Fitting**\n\n"
-                "Configurez un modèle multi-composantes, lancez une exploration aléatoire "
-                "puis affinez par minimisation du χ² ou Emcee.")
-    st.markdown("#### Workflow recommandé")
+        st.info("**📐 Modelling & Fitting**\n\n"
+                "Configure a multi-component model, run a random exploration "
+                "then refine via χ² minimisation or Emcee.")
+    st.markdown("#### Recommended workflow")
     st.markdown(
-        "1. **Visualiseur** → choisir les composantes\n"
-        "2. **Modélisation** → I. Charger les données OIFITS\n"
-        "3. **Modélisation** → II. Filtrer & visualiser\n"
-        "4. **Modélisation** → IV. Configurer & enregistrer le modèle\n"
-        "5. **Modélisation** → V. Lancer le fitting"
+        "1. **Visualiser** → choose components\n"
+        "2. **Modelling** → I. Load OIFITS data\n"
+        "3. **Modelling** → II. Filter & visualise\n"
+        "4. **Modelling** → IV. Configure & save the model\n"
+        "5. **Modelling** → V. Run fitting"
     )
 
 # ─────────────────────────────────────────────────────────────────────────
-# TAB 1 – Visualisation des composants
+# TAB 1 – Component Visualiser
 # ─────────────────────────────────────────────────────────────────────────
 with tab_visu:
     col_left, col_right = st.columns(2)
 
     VISU_COMPONENTS: dict[str, list] = {
         k: v['params'] for k, v in COMPONENT_REGISTRY.items()
-        if k not in ('oimStarHaloGaussLorentz', 'oimStarHaloIRing')  # params avancés
+        if k not in ('oimStarHaloGaussLorentz', 'oimStarHaloIRing')
     }
 
     with col_left:
         selected_comp = st.selectbox(
-            "Choisir une composante",
+            "Choose a component",
             list(VISU_COMPONENTS.keys()),
             format_func=lambda x: f"{x}  —  {COMPONENT_REGISTRY[x]['description']}"
         )
@@ -911,22 +900,22 @@ with tab_visu:
         visu_params: dict = {}
 
         SLIDER_CFG: dict[str, tuple] = {
-            'x':     ("x (position X mas)",    -50., 50., 0., 1.),
-            'y':     ("y (position Y mas)",    -50., 50., 0., 1.),
+            'x':     ("x (X position mas)",    -50., 50., 0., 1.),
+            'y':     ("y (Y position mas)",    -50., 50., 0., 1.),
             'f':     ("f (flux)",               0., 2., 1., 0.1),
-            'd':     ("d (diamètre mas)",       0., 100., 40., 1.),
-            'din':   ("din (diam. int. mas)",   0., 100., 30., 1.),
-            'dout':  ("dout (diam. ext. mas)",  0., 100., 50., 1.),
-            'w':     ("w (largeur mas)",        0., 50., 20., 1.),
-            'dx':    ("dx (largeur X mas)",     0., 100., 30., 1.),
-            'dy':    ("dy (hauteur Y mas)",     0., 100., 20., 1.),
-            'elong': ("elong (élongation)",     1., 3., 1.5, 0.1),
+            'd':     ("d (diameter mas)",       0., 100., 40., 1.),
+            'din':   ("din (inner diam. mas)",  0., 100., 30., 1.),
+            'dout':  ("dout (outer diam. mas)", 0., 100., 50., 1.),
+            'w':     ("w (width mas)",          0., 50., 20., 1.),
+            'dx':    ("dx (X width mas)",       0., 100., 30., 1.),
+            'dy':    ("dy (Y height mas)",      0., 100., 20., 1.),
+            'elong': ("elong (elongation)",     1., 3., 1.5, 0.1),
             'pa':    ("pa (angle °)",           0., 180., 45., 5.),
             'fwhm':  ("fwhm (mas)",             1., 30., 10., 1.),
             'hlr':   ("hlr (mas)",              1., 30., 10., 1.),
             'flor':  ("flor",                   0., 1., 0.5, 0.05),
-            'skw':   ("skw (asymétrie)",        0., 1., 0.3, 0.05),
-            'skwPa': ("skwPa (angle asym. °)",  0., 180., 30., 5.),
+            'skw':   ("skw (skewness)",         0., 1., 0.3, 0.05),
+            'skwPa': ("skwPa (skew angle °)",   0., 180., 30., 5.),
             'a':     ("a",                      0., 1., 0.5, 0.05),
             'a1':    ("a1",                     0., 1., 0.3, 0.05),
             'a2':    ("a2",                     0., 1., 0.2, 0.05),
@@ -943,8 +932,8 @@ with tab_visu:
                 else:
                     visu_params[param] = st.number_input(param, value=0., key=f"visu_{param}")
 
-        # Code Python généré
-        st.subheader("Code Python associé")
+        # Generated Python code
+        st.subheader("Associated Python code")
         params_str = ",\n    ".join(f"{k}={v}" for k, v in visu_params.items())
         code = (f"component = oim.{selected_comp}(\n    {params_str}\n)\n"
                 f"model = oim.oimModel(component)\n"
@@ -963,40 +952,40 @@ with tab_visu:
             ax.set_xlabel('X (pixels)')
             ax.set_ylabel('Y (pixels)')
             ax.set_title(f'{selected_comp}  –  γ = 0.2')
-            plt.colorbar(im_disp, ax=ax, label='Intensité (γ corrigée)')
+            plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
             st.pyplot(fig)
             plt.close(fig)
         except Exception as e:
-            st.error(f"Impossible d'afficher le composant : {e}")
+            st.error(f"Cannot display component: {e}")
 
-    with st.expander("ℹ️ Aide sur les paramètres"):
+    with st.expander("ℹ️ Parameter help"):
         st.markdown("""
 | Param | Description |
 |-------|-------------|
-| x, y | Position du centre (mas) |
-| f | Flux relatif |
-| d | Diamètre (mas) |
-| din / dout | Diamètres intérieur / extérieur (mas) |
-| w | Largeur (mas) |
-| dx / dy | Dimensions boîte (mas) |
-| elong | Rapport d'aspect (ellipticité) |
-| pa | Angle de position (°) |
-| fwhm | Largeur à mi-hauteur (mas) |
-| hlr | Rayon à mi-flux (mas) |
-| flor | Fraction lorentzienne |
-| skw / skwPa | Asymétrie et angle associé |
-| a, a1, a2 | Coefficients de limb darkening |
+| x, y | Centre position (mas) |
+| f | Relative flux |
+| d | Diameter (mas) |
+| din / dout | Inner / outer diameters (mas) |
+| w | Width (mas) |
+| dx / dy | Box dimensions (mas) |
+| elong | Aspect ratio (ellipticity) |
+| pa | Position angle (°) |
+| fwhm | Full width at half maximum (mas) |
+| hlr | Half-light radius (mas) |
+| flor | Lorentzian fraction |
+| skw / skwPa | Skewness and associated angle |
+| a, a1, a2 | Limb darkening coefficients |
         """)
 
 # ─────────────────────────────────────────────────────────────────────────
-# TAB 2 – Modélisation
+# TAB 2 – Modelling
 # ─────────────────────────────────────────────────────────────────────────
 with tab_model:
 
-    # ── I. Chargement ──────────────────────────────────────────────────
-    with st.expander("I. Chargement des données OIFITS", expanded=True):
+    # ── I. Loading ─────────────────────────────────────────────────────
+    with st.expander("I. Load OIFITS data", expanded=True):
         uploaded_files = st.file_uploader(
-            "Charger un ou plusieurs fichiers OIFITS",
+            "Load one or more OIFITS files",
             type=['fits', 'oifits'],
             accept_multiple_files=True,
         )
@@ -1008,28 +997,28 @@ with tab_model:
                         with open(tmp, "wb") as fh:
                             fh.write(f.getbuffer())
                         st.session_state.loaded_files[f.name] = oim.oimData(tmp)
-                        st.success(f"✓ {f.name} chargé")
+                        st.success(f"✓ {f.name} loaded")
                     except Exception as exc:
-                        st.error(f"Erreur ({f.name}) : {exc}")
+                        st.error(f"Error ({f.name}): {exc}")
 
-    # ── II. Filtrage & visualisation ───────────────────────────────────
-    with st.expander("II. Filtrage des données et affichage", expanded=True):
+    # ── II. Filtering & visualisation ──────────────────────────────────
+    with st.expander("II. Data filtering and display", expanded=True):
         if not st.session_state.loaded_files:
-            st.info("Chargez au moins un fichier OIFITS.")
+            st.info("Load at least one OIFITS file.")
             st.stop()
 
-        selected_file = st.selectbox("Jeu de données à afficher",
+        selected_file = st.selectbox("Dataset to display",
                                      list(st.session_state.loaded_files.keys()))
         st.session_state.data = st.session_state.loaded_files[selected_file]
 
-        st.markdown("##### Filtre par longueur d'onde")
+        st.markdown("##### Wavelength filter")
         
-        n_ranges = st.radio("Nombre de domaines spectraux", [1, 2], horizontal=True,
+        n_ranges = st.radio("Number of spectral ranges", [1, 2], horizontal=True,
                             key="n_wl_ranges")
         
         rc1, rc2 = st.columns(2)
         with rc1:
-            st.markdown("**Domaine 1**")
+            st.markdown("**Range 1**")
             rca, rcb = st.columns(2)
             with rca:
                 wl1_min = st.number_input("λ min (µm)", value=3.2, step=0.1,
@@ -1039,7 +1028,7 @@ with tab_model:
                                           format="%.2f", key="wl1_max")
         with rc2:
             if n_ranges == 2:
-                st.markdown("**Domaine 2**")
+                st.markdown("**Range 2**")
                 rcc, rcd = st.columns(2)
                 with rcc:
                     wl2_min = st.number_input("λ min (µm)", value=4.5, step=0.1,
@@ -1048,30 +1037,18 @@ with tab_model:
                     wl2_max = st.number_input("λ max (µm)", value=5.0, step=0.1,
                                               format="%.2f", key="wl2_max")
         
-        st.markdown("##### Binning spectral")
-        #cb1, cb2 = st.columns(2)
-        #with cb1:
-        #    st.markdown("**Bande L**")
-        #    bin_L  = st.slider("Bin L",  1, 20, 1,  key="bin_L")
-        #    norm_L = st.toggle("Normaliser σ (L)", value=False, key="norm_L")
-        #with cb2:
-        #    st.markdown("**Bande N**")
-        #    bin_N  = st.slider("Bin N",  1, 20, 1,  key="bin_N")
-        #    norm_N = st.toggle("Normaliser σ (N)", value=False, key="norm_N")
-        
+        st.markdown("##### Spectral binning")
         
         try:
-            # ── Filtre(s) longueur d'onde via expression ─────────────────
+            # ── Wavelength filter(s) via expression ──────────────────────
             w1_lo = wl1_min * 1e-6
             w1_hi = wl1_max * 1e-6
 
             if n_ranges == 1:
-                # Exclut tout ce qui est hors du domaine 1
                 expr = f"(EFF_WAVE<{w1_lo}) | (EFF_WAVE>{w1_hi})"
             else:
                 w2_lo = wl2_min * 1e-6
                 w2_hi = wl2_max * 1e-6
-                # Exclut ce qui est hors domaine 1 ET hors domaine 2
                 expr = (
                     f"((EFF_WAVE<{w1_lo}) | (EFF_WAVE>{w1_hi})) & "
                     f"((EFF_WAVE<{w2_lo}) | (EFF_WAVE>{w2_hi}))"
@@ -1079,79 +1056,75 @@ with tab_model:
 
             f_wl = oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False)
             st.session_state["_last_filter_expr"] = expr
-            #f_bL = oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L)
-            #f_bN = oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N)
 
-            st.session_state.data.setFilter(oim.oimDataFilter([f_wl]))#, f_bL, f_bN]))
+            st.session_state.data.setFilter(oim.oimDataFilter([f_wl]))
 
             wave_data_filtered = np.unique(st.session_state.data.vect_wl)
             
             if n_ranges == 2:
-                st.info(f"Après filtrage : {len(wave_data_filtered)} points  |  "
-                        f"Domaine 1 : [{wl1_min:.2f}, {wl1_max:.2f}] µm  —  "
-                        f"Domaine 2 : [{wl2_min:.2f}, {wl2_max:.2f}] µm")
+                st.info(f"After filtering: {len(wave_data_filtered)} points  |  "
+                        f"Range 1: [{wl1_min:.2f}, {wl1_max:.2f}] µm  —  "
+                        f"Range 2: [{wl2_min:.2f}, {wl2_max:.2f}] µm")
             else:
-                st.info(f"Après filtrage : {len(wave_data_filtered)} points  |  "
+                st.info(f"After filtering: {len(wave_data_filtered)} points  |  "
                         f"λ ∈ [{wave_data_filtered.min()*1e6:.3f}, "
                         f"{wave_data_filtered.max()*1e6:.3f}] µm")
 
-
         except Exception as exc:
-            st.warning(f"Impossible d'appliquer le filtre : {exc}")
+            st.warning(f"Cannot apply filter: {exc}")
             wave_data_filtered = None
 
-        st.markdown("#### Visualisation des observables")
+        st.markdown("#### Observable visualisation")
 
         def _obs_controls(prefix: str, xd: float = 3.0, xu: float = 4.0,
                           yd: float = 0., yu: float = 1.) -> tuple:
             c_l, c_r = st.columns(2)
             with c_l:
-                xs = st.selectbox("Échelle X", ["linear", "log"], key=f"{prefix}_xs")
+                xs = st.selectbox("X scale", ["linear", "log"], key=f"{prefix}_xs")
                 xmn = st.number_input("Xmin (µm)", value=xd, key=f"{prefix}_xmn")
                 xmx = st.number_input("Xmax (µm)", value=xu, key=f"{prefix}_xmx")
             with c_r:
-                ys = st.selectbox("Échelle Y", ["linear", "log"], key=f"{prefix}_ys")
+                ys = st.selectbox("Y scale", ["linear", "log"], key=f"{prefix}_ys")
                 ymn = st.number_input("Ymin", value=yd, key=f"{prefix}_ymn")
                 ymx = st.number_input("Ymax", value=yu, key=f"{prefix}_ymx")
             return xmn, xmx, ymn, ymx, xs, ys
 
         data = st.session_state.data
-        fig5, (ax1, ax2, ax3) = plt.subplots(ncols=3,figsize=(15, 4),subplot_kw={'projection': 'oimAxes'})
+        fig5, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(15, 4), subplot_kw={'projection': 'oimAxes'})
 
-        ax1.oiplot(data,"SPAFREQ","VIS2DATA",xunit="cycle/mas",color="byBaseline",errorbar=True)
-        #ax1.set_xlim(2.85, 5)
+        ax1.oiplot(data, "SPAFREQ", "VIS2DATA", xunit="cycle/mas", color="byBaseline", errorbar=True)
         ax1.set_ylim(0, 1)
         ax1.set_title("VIS2")
 
-        ax2.oiplot(data,"EFF_WAVE","T3PHI",xunit="micron",color="byBaseline",errorbar=True)
+        ax2.oiplot(data, "EFF_WAVE", "T3PHI", xunit="micron", color="byBaseline", errorbar=True)
         ax2.set_title("T3PHI")
         ax2.set_ylim(-15, 5)
 
-        ax3.oiplot(data,"EFF_WAVE","FLUXDATA", xunit="micron",  errorbar=True)
+        ax3.oiplot(data, "EFF_WAVE", "FLUXDATA", xunit="micron", errorbar=True)
         ax3.set_title("FLUXDATA")
 
         plt.tight_layout()
         st.pyplot(fig5)
 
  
-    # ── IV. Configuration du modèle ────────────────────────────────────
-    with st.expander("IV. Configuration du modèle", expanded=False):
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["Basic Model", "Loading CSV model", "Interpolateurs", "Résumé des models", "Gestion des modèles"])
-        with tab1 : 
+    # ── IV. Model configuration ────────────────────────────────────────
+    with st.expander("IV. Model configuration", expanded=False):
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["Basic Model", "Load CSV model", "Interpolators", "Model summary", "Model management"])
+        with tab1:
             col_A, col_B, col_C = st.columns([1.5, 1, 1.5])
             with col_A:
-                st.markdown("##### A. Initialiser le modèle")
+                st.markdown("##### A. Initialise model")
 
-                # ── Charger un modèle existant ────────────────────────
+                # ── Load an existing model ────────────────────────
                 if st.session_state.MODEL:
-                    load_existing = st.checkbox("Charger un modèle existant", key="load_existing_cb")
+                    load_existing = st.checkbox("Load an existing model", key="load_existing_cb")
                     if load_existing:
                         model_to_load = st.selectbox(
-                            "Modèle à charger",
+                            "Model to load",
                             sorted(list(st.session_state.MODEL.keys())),
                             key="model_to_load_sel",
                         )
-                        if st.button("📂 Charger", use_container_width=True, key="btn_load_existing"):
+                        if st.button("📂 Load", use_container_width=True, key="btn_load_existing"):
                             loaded = st.session_state.MODEL[model_to_load]
                             st.session_state.components = [
                                 {
@@ -1165,19 +1138,18 @@ with tab_model:
                                 st.session_state.components[0]["name"]
                                 if st.session_state.components else None
                             )
-                            st.success(f"✅ Modèle **{model_to_load}** chargé pour édition !")
+                            st.success(f"✅ Model **{model_to_load}** loaded for editing!")
                             st.rerun()
                     
-                
-                model_name = st.text_input("Nom du modèle", value="", placeholder="ex: disque_uniforme",
+                model_name = st.text_input("Model name", value="", placeholder="e.g.: uniform_disk",
                                            label_visibility="visible", key="model_name_input")
-                st.write("**Ajouter un composant**")
+                st.write("**Add a component**")
                 comp_type_sel = st.selectbox(
                     "Type", list(COMPONENT_REGISTRY.keys()), label_visibility="collapsed",
                     format_func=lambda x: f"{x} — {COMPONENT_REGISTRY[x]['description']}")
-                comp_name_inp = st.text_input("Nom du composant", value=comp_type_sel,
-                                            key="new_comp_name")
-                if st.button("➕ Ajouter", use_container_width=False, type="primary"):
+                comp_name_inp = st.text_input("Component name", value=comp_type_sel,
+                                              key="new_comp_name")
+                if st.button("➕ Add", use_container_width=False, type="primary"):
                     existing = [c['name'] for c in st.session_state.components]
                     final    = comp_name_inp
                     if final in existing:
@@ -1188,25 +1160,21 @@ with tab_model:
                     st.session_state.components.append(make_comp_dict(comp_type_sel, final))
                     st.session_state.active_comp_name = final
                     st.rerun()
-                
 
-
-
-            
             with col_B:
                 if not st.session_state.components:
-                    st.info("Ajoutez un composant.")
+                    st.info("Add a component.")
                 else:
                     names = [c['name'] for c in st.session_state.components]
                     if st.session_state.active_comp_name not in names:
                         st.session_state.active_comp_name = names[0]
-                    st.markdown("##### B. Gestion des composants")
+                    st.markdown("##### B. Component management")
 
-                    st.write("**Composant actif**")
+                    st.write("**Active component**")
                     active_name = st.radio("", names,
-                                        index=names.index(st.session_state.active_comp_name),
-                                        key="active_radio",
-                                        label_visibility="collapsed")
+                                           index=names.index(st.session_state.active_comp_name),
+                                           key="active_radio",
+                                           label_visibility="collapsed")
                     if active_name != st.session_state.active_comp_name:
                         st.session_state.active_comp_name = active_name
                         st.rerun()
@@ -1214,11 +1182,11 @@ with tab_model:
                     if comp_active:
                         read_widget_values_into_comp(comp_active)
                     
-                    st.write("**Supprimer un composant**")
+                    st.write("**Delete a component**")
                     if st.session_state.components:
                         to_del = st.selectbox("", [c['name'] for c in st.session_state.components],
-                                            label_visibility="collapsed", key="del_select")
-                        if st.button("🗑️ Supprimer", use_container_width=True):
+                                              label_visibility="collapsed", key="del_select")
+                        if st.button("🗑️ Delete", use_container_width=True):
                             st.session_state.components = [
                                 c for c in st.session_state.components if c['name'] != to_del]
                             names = [c['name'] for c in st.session_state.components]
@@ -1229,25 +1197,21 @@ with tab_model:
                 if st.session_state.components:
                     for c in st.session_state.components:
                         read_widget_values_into_comp(c)
-                    with st.spinner("Rendu …", show_time=True):
+                    with st.spinner("Rendering …", show_time=True):
                         fig_prev = generate_model_preview(st.session_state.components)
                         if fig_prev:
                             st.pyplot(fig_prev, use_container_width=False)
                             plt.close(fig_prev)
-                    
-
                 else:
-                    st.info("Ajoutez un composant pour voir l'aperçu.")
-                
+                    st.info("Add a component to see the preview.")
 
-
-            # ── Éditeur de paramètres du composant actif ───────────────────
+            # ── Active component parameter editor ──────────────────────
             comp_edit = (get_comp(st.session_state.active_comp_name)
-                        if st.session_state.active_comp_name else None)
+                         if st.session_state.active_comp_name else None)
             if comp_edit is None:
-                st.info("Sélectionnez un composant pour l'éditer.")
+                st.info("Select a component to edit it.")
             else:
-                st.markdown(f"##### C. Configuration : **{comp_edit['name']}** ({comp_edit['type']})")
+                st.markdown(f"##### C. Configuration: **{comp_edit['name']}** ({comp_edit['type']})")
                 n_cols = min(len(comp_edit['params']), 6)
                 param_cols = st.columns(n_cols)
                 for i, param in enumerate(comp_edit['params']):
@@ -1258,71 +1222,63 @@ with tab_model:
                     cur_free       = param in comp_edit['free_params']
                     with param_cols[i % n_cols]:
                         st.markdown(f"**{param}**")
-                        st.number_input("init", value=float(cur_init), key=f"{comp_edit['name']}_{param}_init", format="%.4g") #min_value=float(lo_def), max_value=float(hi_def),
-                        st.number_input("min",  value=float(cur_lo),   key=f"{comp_edit['name']}_{param}_min",  format="%.4g") #min_value=float(lo_def), max_value=float(hi_def),
-                        st.number_input("max",  value=float(cur_hi),   key=f"{comp_edit['name']}_{param}_max",  format="%.4g")#min_value=float(lo_def), max_value=float(hi_def),
-                                        
-                        st.checkbox("libre", value=cur_free,
+                        st.number_input("init", value=float(cur_init), key=f"{comp_edit['name']}_{param}_init", format="%.4g")
+                        st.number_input("min",  value=float(cur_lo),   key=f"{comp_edit['name']}_{param}_min",  format="%.4g")
+                        st.number_input("max",  value=float(cur_hi),   key=f"{comp_edit['name']}_{param}_max",  format="%.4g")
+                        st.checkbox("free", value=cur_free,
                                     key=f"{comp_edit['name']}_{param}_free")
                 read_widget_values_into_comp(comp_edit)
 
-                st.write("**Enregistrer le modèle**")
-                if st.button("✅ Enregistrer", use_container_width=False, type="primary"):
+                st.write("**Save model**")
+                if st.button("✅ Save", use_container_width=False, type="primary"):
                     for c in st.session_state.components:
                         read_widget_values_into_comp(c)
-                    mname = model_name.strip() or "modèle_sans_nom"
+                    mname = model_name.strip() or "unnamed_model"
                     st.session_state.MODEL[mname] = {
                         'components': [
                             {'type': c['type'], 'name': c['name'],
-                            'initial_values': c['initial_values'].copy(),
-                            'param_ranges':   c['param_ranges'].copy(),
-                            'free_params':    c['free_params'].copy()}
+                             'initial_values': c['initial_values'].copy(),
+                             'param_ranges':   c['param_ranges'].copy(),
+                             'free_params':    c['free_params'].copy()}
                             for c in st.session_state.components
                         ]
                     }
-                    st.success(f"✅ Modèle « {mname} » enregistré !")
+                    st.success(f"✅ Model « {mname} » saved!")
 
+        with tab2:
+            # ── CSV import ─────────────────────────────────────────────────
+            st.markdown("##### 📂 Import a model from a CSV file")
 
-
-
-        with tab2 : 
-            # ── Import CSV ─────────────────────────────────────────────────
-            st.markdown("##### 📂 Importer un modèle depuis un fichier CSV")
-
-            
             csv_file = st.file_uploader(
-                "Charger un CSV de paramètres (format tableau de résultats)",
+                "Load a parameter CSV (results table format)",
                 type=["csv"],
                 key="csv_model_uploader",
-                help="Colonnes attendues : Paramètre, Valeur, Min, Max, Libre\n"
-                    "Paramètre au format : c{n}_{TypeAbbr}_{param}  ex: c1_UD_d"
+                help="Expected columns: Parameter, Value, Min, Max, Free\n"
+                     "Parameter format: c{n}_{TypeAbbr}_{param}  e.g.: c1_UD_d"
             )
             csv_model_name = st.text_input(
-                "Nom du modèle importé",
-                placeholder="ex: modele_csv",
+                "Imported model name",
+                placeholder="e.g.: csv_model",
                 key="csv_model_name",
             )
             st.markdown("&nbsp;", unsafe_allow_html=True)
-            do_import = st.button("📥 Importer & stocker", use_container_width=False,
-                                key="btn_csv_import")
+            do_import = st.button("📥 Import & store", use_container_width=False,
+                                   key="btn_csv_import")
 
             if csv_file is not None:
                 try:
                     csv_df = pd.read_csv(csv_file)
-                    # Aperçu
-                    with st.expander("Aperçu du CSV chargé", expanded=False):
+                    with st.expander("Preview of loaded CSV", expanded=False):
                         st.dataframe(csv_df, use_container_width=True)
 
                     if do_import:
                         result, err_msg = parse_csv_to_model(csv_df)
                         if result is None:
-                            st.error(f"❌ Erreur d'import CSV :\n\n{err_msg}")
+                            st.error(f"❌ CSV import error:\n\n{err_msg}")
                         else:
                             target_name = csv_model_name.strip() or csv_file.name.replace(".csv", "")
                             st.session_state.MODEL[target_name] = result
-                            # Synchroniser également st.session_state.components pour
-                            # permettre une édition immédiate dans le panneau courant
-                            st.session_state.components      = [
+                            st.session_state.components = [
                                 dict(c) for c in result['components']
                             ]
                             st.session_state.active_comp_name = (
@@ -1331,135 +1287,128 @@ with tab_model:
                             n_comp = len(result['components'])
                             comp_names = ', '.join(c['name'] for c in result['components'])
                             st.success(
-                                f"✅ Modèle **{target_name}** importé avec succès "
-                                f"({n_comp} composant{'s' if n_comp > 1 else ''} : {comp_names})"
+                                f"✅ Model **{target_name}** successfully imported "
+                                f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
                             )
                             st.rerun()
                 except Exception as exc:
-                    st.error(f"Impossible de lire le CSV : {exc}")
+                    st.error(f"Cannot read CSV: {exc}")
+
         with tab3:
-           st.warning(':construction: ces fonctionnalités seront disponibles dans la prochaine version')
-        with tab4 :
-            try : 
+            st.warning(':construction: These features will be available in the next version')
+
+        with tab4:
+            try:
                 col1, col2 = st.columns([1, 2])
-                with col1 : 
-                    TEST = st.selectbox("Voir un model", sorted([mname for mname in  st.session_state.MODEL.keys()]), index=0)
+                with col1:
+                    TEST = st.selectbox("View a model", sorted([mname for mname in st.session_state.MODEL.keys()]), index=0)
                     _model = build_oim_model(st.session_state.MODEL[TEST]["components"])
                     sim = oim.oimSimulator(data=st.session_state.data, model=_model)
                     st.write("$\chi²$ : " + f"{sim.chi2r:.2f}")
                     st.write(sim.model)
-    
-    
+
                     col3, col4, col5 = st.columns(3)
-                    with col3 : 
+                    with col3:
                         st.write("$X$ axis")
                         X_min = st.number_input("Xmin", key="Xmin CP", value=1.)
                         X_max = st.number_input("Xmax", key="Xmax CP", value=5.)
-                        
-                    with col4 : 
+                    with col4:
                         st.write("$V²_Y$")
                         Vis_Y_min = st.number_input("Ymin", key="Ymin Vis", value=0.)
                         Vis_Y_max = st.number_input("Ymax", key="Ymax Vis", value=1.)
-                    with col5 : 
+                    with col5:
                         st.write("$CP_Y$")
                         CP_Y_min = st.number_input("Ymin", key="Ymin CP", value=-180.)
                         CP_Y_max = st.number_input("Ymax", key="Ymax CP", value=180.)
-    
-    
-                with col2 : 
+
+                with col2:
                     fig0, ax0 = sim.plot(["VIS2DATA", "T3PHI"])
-    
+
                     ax0[0].set_xlim([X_min*1e7, X_max*1e7])
                     ax0[0].set_ylim([Vis_Y_min, Vis_Y_max])
-    
+
                     ax0[1].set_xlim([X_min*1e7, X_max*1e7])
                     ax0[1].set_ylim([CP_Y_min, CP_Y_max])
-    
+
                     st.pyplot(fig0)
-    
-                fig1 = sim.plotWlTemplate([["VIS2DATA"],["T3PHI"]],xunit="micron",figsize=(22,3))
-                fig1.set_legends(0.5,0.8,"$BASELINE$",["VIS2DATA","T3PHI"],fontsize=10,ha="center")
+
+                fig1 = sim.plotWlTemplate([["VIS2DATA"], ["T3PHI"]], xunit="micron", figsize=(22, 3))
+                fig1.set_legends(0.5, 0.8, "$BASELINE$", ["VIS2DATA", "T3PHI"], fontsize=10, ha="center")
                 ax = fig1.axes[0]
                 ax.set_ylim(Vis_Y_min, Vis_Y_max)
-                
-                ax2 = fig1.axes[7]
-                ax2.set_ylim(CP_Y_min,CP_Y_max)
-                st.pyplot(fig1)
-            except : 
-                st.warning("veuillez definir un modele avant d'acceder à cette fenêtre")
-            with tab5 : 
-                liste_de_model = sorted([mname for mname in  st.session_state.MODEL.keys()])
 
-                if [i for i in st.session_state.MODEL] : 
+                ax2 = fig1.axes[7]
+                ax2.set_ylim(CP_Y_min, CP_Y_max)
+                st.pyplot(fig1)
+            except:
+                st.warning("Please define a model before accessing this panel")
+
+            with tab5:
+                liste_de_model = sorted([mname for mname in st.session_state.MODEL.keys()])
+
+                if [i for i in st.session_state.MODEL]:
                     col1, col2 = st.columns(2)
 
-                    with col1 : 
-                        st.write("**Renomer un modèle**")
-                        model_TBR = st.selectbox("Selectionner le modele à renomer", liste_de_model, index=0, key="model TBR")
-                        
-                        new_name = st.text_input("Nouveau nom", value="test K2000", placeholder="new name")
-                        
-                        if st.button("Renomer", type="primary"):
+                    with col1:
+                        st.write("**Rename a model**")
+                        model_TBR = st.selectbox("Select the model to rename", liste_de_model, index=0, key="model TBR")
+                        new_name = st.text_input("New name", value="new_model", placeholder="new name")
+
+                        if st.button("Rename", type="primary"):
                             st.session_state.MODEL[new_name] = copy.deepcopy(st.session_state.MODEL.pop(model_TBR))
                             list_model_dispo = [i for i in st.session_state.MODEL]
 
                             if (model_TBR not in list_model_dispo) & (new_name in list_model_dispo):
-                                st.success(f"Le modèle : {model_TBR} à bien été renomé par {new_name}")
+                                st.success(f"Model: {model_TBR} has been successfully renamed to {new_name}")
 
-                    with col2 : 
-                        st.write("**Supprimer un modèle**")
-                        model_TBS = st.selectbox("Selectionner le modele à supprimer", liste_de_model, index=0, key="model TBS")
-                        if st.button("Supprimer", key="Supprimer un model", type="primary"):
+                    with col2:
+                        st.write("**Delete a model**")
+                        model_TBS = st.selectbox("Select the model to delete", liste_de_model, index=0, key="model TBS")
+                        if st.button("Delete", key="Delete a model", type="primary"):
                             st.session_state.MODEL.pop(model_TBS)
-                            
+
                             list_model_dispo = [i for i in st.session_state.MODEL]
-                            if model_TBS not in list_model_dispo : 
-                                st.success(f"Le modèle : {model_TBS} à bien été supprimé")
-                else :
-                    st.warning("Il n'y a pas de modele définit pour le moment") 
+                            if model_TBS not in list_model_dispo:
+                                st.success(f"Model: {model_TBS} has been successfully deleted")
+                else:
+                    st.warning("No model has been defined yet")
 
 
-
-
-
-
-
-        
     # ── V. Fitting ──────────────────────────────────────────────────────
-    st.header("V. Fitting des données")
+    st.header("V. Data fitting")
 
     if not st.session_state.MODEL:
-        st.warning("⚠️ Aucun modèle enregistré. Configurez et enregistrez un modèle (section IV).")
+        st.warning("⚠️ No model saved. Configure and save a model (section IV).")
         st.stop()
 
     col_sel1, col_sel2, col_sel3 = st.columns(3)
     with col_sel1:
-        st.selectbox("Jeu de données", options=list(st.session_state.loaded_files.keys()),
+        st.selectbox("Dataset", options=list(st.session_state.loaded_files.keys()),
                      key="fit_dataset")
     with col_sel2:
         model_options = sorted(list(st.session_state.MODEL.keys()))
-        model_to_use  = st.selectbox("Modèle à utiliser", options=model_options,
+        model_to_use  = st.selectbox("Model to use", options=model_options,
                                      index=len(model_options) - 1, key="fit_model")
     with col_sel3:
-        methode = st.selectbox("Méthode",
-                               ["Aléatoire", "Minimisation χ²", "Emcee"],
+        methode = st.selectbox("Method",
+                               ["Random", "χ² minimisation", "Emcee"],
                                key="fit_method", index=2)
-        st.warning("**Minimisation $\chi²$** en cours de programmation")
+        st.warning("**χ² minimisation** is being implemented")
 
-    # ── V-a. Recherche aléatoire ────────────────────────────────────────
-    if methode == "Aléatoire":
-        st.markdown("##### Configuration de la recherche aléatoire")
+    # ── V-a. Random search ──────────────────────────────────────────────
+    if methode == "Random":
+        st.markdown("##### Random search configuration")
         ca1, ca2, ca3 = st.columns(3)
         with ca1:
-            n_runs    = st.number_input("Nombre d'itérations", 10, 1000, 100, 10)
-            use_seed  = st.checkbox("Graine fixe", value=True)
-            seed_val  = st.number_input("Graine", 0, 99999, 42) if use_seed else None
+            n_runs    = st.number_input("Number of iterations", 10, 1000, 100, 10)
+            use_seed  = st.checkbox("Fixed seed", value=True)
+            seed_val  = st.number_input("Seed", 0, 99999, 42) if use_seed else None
         with ca2:
-            rand_dtypes = st.multiselect("Données à utiliser",
+            rand_dtypes = st.multiselect("Data to use",
                                          ["VIS2DATA", "T3PHI", "VISPHI", "T3AMP", "FLUXDATA"],
                                          default=["VIS2DATA", "T3PHI"])
         with ca3:
-            use_custom_wave = st.checkbox("Longueurs d'onde personnalisées")
+            use_custom_wave = st.checkbox("Custom wavelengths")
             wave_override   = None
             if use_custom_wave:
                 wco1, wco2, wco3 = st.columns(3)
@@ -1467,19 +1416,19 @@ with tab_model:
                 with wco2: wl_cmax = st.number_input("λ max (m)", value=5e-6, format="%.2e", key="wco_max")
                 with wco3: n_wl    = st.number_input("Nb points", 10, 200, 50, key="wco_n")
                 wave_override = np.linspace(wl_cmin, wl_cmax, n_wl)
-                st.success(f"✓ {n_wl} points entre {wl_cmin:.2e} et {wl_cmax:.2e} m")
+                st.success(f"✓ {n_wl} points between {wl_cmin:.2e} and {wl_cmax:.2e} m")
 
         model_comps = st.session_state.MODEL[model_to_use]["components"]
         if not model_comps:
-            st.warning("Le modèle sélectionné est vide.")
+            st.warning("The selected model is empty.")
         elif st.session_state.data is None:
-            st.warning("Chargez des données OIFITS.")
+            st.warning("Load OIFITS data.")
         else:
-            with st.expander(f"Résumé du modèle « {model_to_use} »"):
+            with st.expander(f"Model summary « {model_to_use} »"):
                 for c in model_comps:
-                    st.write(f"**{c['name']}** ({c['type']}) — libres : {', '.join(c['free_params'])}")
+                    st.write(f"**{c['name']}** ({c['type']}) — free: {', '.join(c['free_params'])}")
 
-            if st.button("🚀 Lancer la recherche aléatoire", type="primary",
+            if st.button("🚀 Run random search", type="primary",
                          use_container_width=True):
                 configs = [
                     ComponentConfig(component_type=c['type'], name=c['name'],
@@ -1494,7 +1443,6 @@ with tab_model:
                     bp, bc, hist = random_search(st.session_state.data, configs,
                                                  n_runs=n_runs, seed=seed_val,
                                                  wave_data=wave_override)
-                    # Reconstruire le meilleur modèle
                     best_comps = [cfg.create_instance(bp.get(cfg.name, {}))
                                   for cfg in configs]
                     st.session_state.best_model      = oim.oimModel(*best_comps)
@@ -1502,29 +1450,29 @@ with tab_model:
                     st.session_state.best_chi2       = bc
                     st.session_state.history         = hist
                     st.session_state.optimization_done = True
-                    st.success("✅ Optimisation terminée !")
+                    st.success("✅ Optimisation complete!")
                     st.balloons()
                 except Exception as exc:
-                    st.error(f"Erreur : {exc}")
+                    st.error(f"Error: {exc}")
 
             if st.session_state.optimization_done:
-                st.markdown("### Résultats de la recherche aléatoire")
-                st.success(f"Meilleur χ²ᵣ : **{st.session_state.best_chi2:.4f}**")
+                st.markdown("### Random search results")
+                st.success(f"Best χ²ᵣ: **{st.session_state.best_chi2:.4f}**")
                 _, tbl = get_result_df(st.session_state.best_model, is_fit=False)
                 st.dataframe(tbl, use_container_width=True)
 
-                if st.button("💾 Enregistrer ce meilleur modèle", use_container_width=True,
+                if st.button("💾 Save this best model", use_container_width=True,
                              key="save_random"):
                     update_model_from_fit(
                         f"Best_Random_{model_to_use}",
                         model_to_use,
                         st.session_state.best_model,
-                        chi2r=st.session_state.best_chi2,   # ✅
+                        chi2r=st.session_state.best_chi2,
                     )
-                    st.success(f"Modèle **Best_Random_{model_to_use}** enregistré !")
+                    st.success(f"Model **Best_Random_{model_to_use}** saved!")
 
-                # Historique graphique
-                st.markdown("##### Historique")
+                # History plot
+                st.markdown("##### History")
                 runs   = [r['run']   for r in st.session_state.history]
                 chi2s  = [r['chi2r'] for r in st.session_state.history]
                 cummin = []
@@ -1536,35 +1484,35 @@ with tab_model:
                 gh1, gh2 = st.columns(2)
                 with gh1:
                     fig1, ax1 = plt.subplots(figsize=(7, 5))
-                    ax1.scatter(runs, chi2s, alpha=0.4, s=15, label='Tous les essais')
-                    ax1.plot(runs, cummin, 'r-', lw=2, label='Meilleur χ²ᵣ')
+                    ax1.scatter(runs, chi2s, alpha=0.4, s=15, label='All runs')
+                    ax1.plot(runs, cummin, 'r-', lw=2, label='Best χ²ᵣ')
                     ax1.set_xlabel('Run'); ax1.set_ylabel('χ²ᵣ')
-                    ax1.set_title('Évolution'); ax1.legend(); ax1.grid(alpha=.3)
+                    ax1.set_title('Evolution'); ax1.legend(); ax1.grid(alpha=.3)
                     st.pyplot(fig1); plt.close(fig1)
                 with gh2:
                     fig2, ax2 = plt.subplots(figsize=(7, 5))
                     ax2.hist(chi2s, bins=30, alpha=.7, edgecolor='black')
                     ax2.axvline(min(chi2s), color='r', ls='--', lw=2,
                                 label=f'Min = {min(chi2s):.4f}')
-                    ax2.set_xlabel('χ²ᵣ'); ax2.set_ylabel('Fréquence')
+                    ax2.set_xlabel('χ²ᵣ'); ax2.set_ylabel('Frequency')
                     ax2.set_title('Distribution'); ax2.legend(); ax2.grid(alpha=.3)
                     st.pyplot(fig2); plt.close(fig2)
 
-    # ── V-b. Minimisation χ² ────────────────────────────────────────────
-    elif methode == "Minimisation χ²":
-        st.markdown("### Minimisation du χ²")
-        opt_dtypes = st.multiselect("Données à fitter",
+    # ── V-b. χ² minimisation ────────────────────────────────────────────
+    elif methode == "χ² minimisation":
+        st.markdown("### χ² minimisation")
+        opt_dtypes = st.multiselect("Data to fit",
                                     ["VIS2DATA", "T3PHI", "FLUXDATA"],
                                     default=["VIS2DATA", "T3PHI"],
                                     key="chi2_dtypes")
 
         if st.session_state.data is None:
-            st.warning("Chargez des données OIFITS.")
+            st.warning("Load OIFITS data.")
         else:
             model_chi2 = build_oim_model(st.session_state.MODEL[model_to_use]["components"])
             if model_chi2 is None:
-                st.error("Impossible de construire le modèle.")
-            elif st.button("▶️ Lancer la minimisation χ²", type="primary"):
+                st.error("Cannot build model.")
+            elif st.button("▶️ Run χ² minimisation", type="primary"):
                 st.session_state.data.useFilter = True
                 try:
                     model_init = copy.deepcopy(model_chi2)
@@ -1588,26 +1536,26 @@ with tab_model:
                         'state':            0,
                     }
                 except Exception as exc:
-                    st.error(f"Erreur minimisation : {exc}")
+                    st.error(f"Minimisation error: {exc}")
 
             if st.session_state.chi2_result is not None:
                 r = st.session_state.chi2_result
                 if r['chi2_final'] > r['chi2_init']:
-                    st.warning(f"⚠️ Divergence : {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
+                    st.warning(f"⚠️ Divergence: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
                 else:
-                    st.success(f"✅ χ²ᵣ : {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
+                    st.success(f"✅ χ²ᵣ: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
 
                 cr1, cr2 = st.columns(2)
                 with cr1:
-                    st.markdown(f"**Avant** (χ²ᵣ = {r['chi2_init']:.2f})")
+                    st.markdown(f"**Before** (χ²ᵣ = {r['chi2_init']:.2f})")
                     _, tbl1 = get_result_df(r['model_initial'], is_fit=False)
                     st.dataframe(tbl1, use_container_width=True)
                 with cr2:
-                    st.markdown(f"**Après** (χ²ᵣ = {r['chi2_final']:.2f})")
+                    st.markdown(f"**After** (χ²ᵣ = {r['chi2_final']:.2f})")
                     _, tbl2 = get_result_df(r['best_chi2_model'], is_fit=False)
                     st.dataframe(tbl2, use_container_width=True)
 
-                # Figure comparaison
+                # Comparison figure
                 try:
                     st.session_state.data.useFilter = True
                     decomp = decompose_model_flux(r['best_chi2_model'], st.session_state.data)
@@ -1620,19 +1568,15 @@ with tab_model:
                         kwargsData=dict(color="byBaseline"))[1]
                     d_img = extract_model_image(r['best_chi2_model'])
 
-                    # Figure FLUX avec oimAxes (seul axe qui supporte oiplot)
                     fig_flux = plot_flux_decomposition(decomp, st.session_state.data)
                     ax_flux_src = fig_flux.axes[0]
 
                     plt.close('all')
 
-                    # Figure finale 4 panneaux
                     fig_cmp, axes_cmp = plt.subplots(1, 4, figsize=(24, 5))
 
-                    # Panneau 0 : recopie du graphe FLUX
                     copy_axes_lines(ax_flux_src, axes_cmp[0])
-                    axes_cmp[0].set_title("FLUXDATA / composantes")
-                    # Légende dédupliquée
+                    axes_cmp[0].set_title("FLUXDATA / components")
                     handles, labels = axes_cmp[0].get_legend_handles_labels()
                     seen = {}
                     for h, l in zip(handles, labels):
@@ -1640,17 +1584,14 @@ with tab_model:
                             seen[l] = h
                     axes_cmp[0].legend(seen.values(), seen.keys(), fontsize=7)
 
-                    # Panneau 1 : VIS²
                     copy_axes_lines(ax_v2[0], axes_cmp[1])
                     axes_cmp[1].set_title("VIS²")
 
-                    # Panneau 2 : T3PHI
                     copy_axes_lines(ax_t3[0], axes_cmp[2])
                     axes_cmp[2].set_title("T3PHI")
 
-                    # Panneau 3 : Image modèle
                     axes_cmp[3].imshow(d_img[0, 0] ** 0.2, cmap='hot', origin='lower')
-                    axes_cmp[3].set_title("Modèle (γ=0.2)")
+                    axes_cmp[3].set_title("Model (γ=0.2)")
 
                     plt.tight_layout()
                     st.pyplot(fig_cmp, use_container_width=True)
@@ -1658,11 +1599,10 @@ with tab_model:
                     plt.close(fig_flux)
 
                 except Exception as exc:
-                    st.warning(f"Impossible d'afficher la comparaison : {exc}") 
+                    st.warning(f"Cannot display comparison: {exc}")
 
-
-                # ── Code Python reproductible ─────────────────────────
-                with st.expander("Code Python reproductible", expanded=False):
+                # ── Reproducible Python code ──────────────────────────
+                with st.expander("Reproducible Python code", expanded=False):
                     _filter_params = {
                         "expr":   st.session_state.get("_last_filter_expr", ""),
                         "bin_L":  st.session_state.get("bin_L", 1),
@@ -1679,20 +1619,21 @@ with tab_model:
                     )
                     st.code(_code_chi2, language="python")
                                
-                if st.button("💾 Enregistrer le meilleur modèle χ²", use_container_width=True,key="save_chi2", type="primary"):
+                if st.button("💾 Save best χ² model", use_container_width=True, key="save_chi2", type="primary"):
                     update_model_from_fit(
                         f"Best_Chi2r_{r['model_to_use']}",
                         r['model_to_use'],
                         r['best_chi2_model'],
-                        chi2r=r['chi2_final'],           
+                        chi2r=r['chi2_final'],
                     )
-                    st.success(f"Modèle **Best_Chi2r_{r['model_to_use']}** enregistré !")
-        # ── V-c. Emcee ──────────────────────────────────────────────────────
+                    st.success(f"Model **Best_Chi2r_{r['model_to_use']}** saved!")
+
+    # ── V-c. Emcee ──────────────────────────────────────────────────────
     elif methode == "Emcee":
         st.markdown("### Emcee MCMC")
         ec1, ec2, ec3, ec4 = st.columns(4)
         with ec1:
-            emcee_dtypes = st.multiselect("Données à fitter",
+            emcee_dtypes = st.multiselect("Data to fit",
                                           ["VIS2DATA", "T3PHI", "FLUXDATA"],
                                           default=["VIS2DATA", "T3PHI"],
                                           key="emcee_dtypes")
@@ -1705,12 +1646,12 @@ with tab_model:
                                        key="emcee_init")
 
         if st.session_state.data is None:
-            st.warning("Chargez des données OIFITS.")
+            st.warning("Load OIFITS data.")
         else:
             model_emcee = build_oim_model(st.session_state.MODEL[model_to_use]["components"])
             if model_emcee is None:
-                st.error("Impossible de construire le modèle.")
-            elif st.button("▶️ Lancer Emcee", type="primary"):
+                st.error("Cannot build model.")
+            elif st.button("▶️ Run Emcee", type="primary"):
                 st.session_state.data.useFilter = True
                 try:
                     model_init = copy.deepcopy(model_emcee)
@@ -1718,12 +1659,12 @@ with tab_model:
                     sim_init.compute(computeChi2=True, computeSimulatedData=False)
                     chi2_init  = sim_init.chi2r
 
-                    emfit = oim.oimFitterEmcee(st.session_state.data, model_emcee,nwalkers=nb_walkers,dataTypes=emcee_dtypes)
+                    emfit = oim.oimFitterEmcee(st.session_state.data, model_emcee, nwalkers=nb_walkers, dataTypes=emcee_dtypes)
                     sampler_path = Path("/tmp/sampler_emcee.txt")
-                    sampler_path.unlink(missing_ok=True)   
+                    sampler_path.unlink(missing_ok=True)
 
-                    emfit.prepare(init=init_mode)#,samplerFile=str(sampler_path))
-                    with st.spinner("MCMC en cours …", show_time=True):
+                    emfit.prepare(init=init_mode)
+                    with st.spinner("MCMC running …", show_time=True):
                         emfit.run(nsteps=nb_steps, progress=True)
 
                     st.session_state.Emcee_Result = {
@@ -1734,23 +1675,23 @@ with tab_model:
                         'lmfit':            emfit,
                         'model_to_use':     model_to_use,
                     }
-                    st.success("✅ Emcee terminé !")
+                    st.success("✅ Emcee complete!")
                     st.balloons()
                 except ValueError as e:
-                    st.error(f"ValueError : {e}")
+                    st.error(f"ValueError: {e}")
                 except Exception as e:
-                    st.error(f"Erreur Emcee : {e}")
+                    st.error(f"Emcee error: {e}")
 
             if st.session_state.Emcee_Result is not None:
                 er = st.session_state.Emcee_Result
 
-                # ── LIGNE 1 : χ²ᵣ + tableau des paramètres ──────────────
-                st.markdown(f"χ²ᵣ : **{er['chi2_init']:.2f}** → **{er['chi2_final']:.2f}**")
-                st.markdown("##### Paramètres ajustés")
+                # ── LINE 1: χ²ᵣ + parameter table ────────────────────────
+                st.markdown(f"χ²ᵣ: **{er['chi2_init']:.2f}** → **{er['chi2_final']:.2f}**")
+                st.markdown("##### Fitted parameters")
                 _, tbl_em = get_result_df(er['best_Emcee_model'], is_fit=False)
                 st.dataframe(tbl_em, use_container_width=True, height=350)
 
-                if st.button("💾 Enregistrer le meilleur modèle Emcee",
+                if st.button("💾 Save best Emcee model",
                              use_container_width=True, key="save_emcee"):
                     update_model_from_fit(
                         f"Best_Emcee_{er['model_to_use']}",
@@ -1758,10 +1699,10 @@ with tab_model:
                         er['best_Emcee_model'],
                         chi2r=er['chi2_final'],
                     )
-                    st.success(f"Modèle **Best_Emcee_{er['model_to_use']}** enregistré !")
+                    st.success(f"Model **Best_Emcee_{er['model_to_use']}** saved!")
 
-                # ── Code Python reproductible ─────────────────────────
-                with st.expander("Code Python reproductible", expanded=False):
+                # ── Reproducible Python code ──────────────────────────
+                with st.expander("Reproducible Python code", expanded=False):
                     _filter_params = {
                         "expr":   st.session_state.get("_last_filter_expr", ""),
                         "bin_L":  st.session_state.get("bin_L", 1),
@@ -1785,53 +1726,52 @@ with tab_model:
 
                 st.markdown("---")
 
-                # ── LIGNE 2 : multiselect ────────────────────────────────
-                st.markdown("#### Affichage des résultats")
-                # PAR :
+                # ── LINE 2: multiselect ──────────────────────────────────
+                st.markdown("#### Display results")
                 GRAPH_OPTIONS = {
-                    "Walkers":               "walkers",
-                    "Corner plot":           "corner",
-                    "VIS² / T3PHI":          "vis_t3",
-                    "FLUXDATA / composantes": "flux",
-                    "Image modèle":          "image",
+                    "Walkers":                "walkers",
+                    "Corner plot":            "corner",
+                    "VIS² / T3PHI":           "vis_t3",
+                    "FLUXDATA / components":  "flux",
+                    "Model image":            "image",
                 }
                 selected_graphs = st.multiselect(
-                    "Graphes à afficher",
+                    "Graphs to display",
                     list(GRAPH_OPTIONS.keys()),
-                    default=["VIS² / T3PHI", "FLUXDATA / composantes"],
+                    default=["VIS² / T3PHI", "FLUXDATA / components"],
                     key="emcee_graphs",
                 )
                 selected_keys = [GRAPH_OPTIONS[g] for g in selected_graphs]
 
-                # ── LIGNE 3 : col_params (gauche) | col_graph (droite) ───
+                # ── LINE 3: col_params (left) | col_graph (right) ────────
                 if selected_keys:
                     col_params, col_graph = st.columns([1, 2])
 
                     with col_params:
-                        st.markdown("##### Paramètres des graphes")
+                        st.markdown("##### Graph parameters")
 
-                        # ── Walkers : pas de paramètre ───────────────────
+                        # ── Walkers: no parameters ────────────────────────
                         if "walkers" in selected_keys:
                             st.markdown("**Walkers**")
-                            st.caption("Aucun paramètre ajustable.")
+                            st.caption("No adjustable parameters.")
                             st.markdown("---")
 
-                        # ── Corner : pas de paramètre ────────────────────
+                        # ── Corner: no parameters ─────────────────────────
                         if "corner" in selected_keys:
                             st.markdown("**Corner plot**")
-                            st.caption("Aucun paramètre ajustable.")
+                            st.caption("No adjustable parameters.")
                             st.markdown("---")
 
-                        # ── VIS² / T3PHI ─────────────────────────────────
+                        # ── VIS² / T3PHI ──────────────────────────────────
                         if "vis_t3" in selected_keys:
                             st.markdown("**VIS² / T3PHI**")
-                            vt_xs    = st.selectbox("Échelle X", ["linear", "log"],
+                            vt_xs    = st.selectbox("X scale", ["linear", "log"],
                                                     key="em_vt_xs")
                             vt_xmn   = st.number_input("Xmin (cycle/mas)", value=0.,
                                                         key="em_vt_xmn")
                             vt_xmx   = st.number_input("Xmax (cycle/mas)", value=5.,
                                                         key="em_vt_xmx")
-                            vt_v2_ys = st.selectbox("Échelle Y  VIS²", ["linear", "log"],
+                            vt_v2_ys = st.selectbox("Y scale VIS²", ["linear", "log"],
                                                      key="em_vt_v2_ys")
                             vt_v2_ymn = st.number_input("Ymin VIS²", value=0.,
                                                          key="em_vt_v2_ymn")
@@ -1842,26 +1782,27 @@ with tab_model:
                             vt_t3_ymx = st.number_input("Ymax T3PHI (°)", value=15.,
                                                          key="em_vt_t3_ymx")
                             st.markdown("---")
-                        # ── FLUX ─────────────────────────────────────────
+
+                        # ── FLUX ──────────────────────────────────────────
                         if "flux" in selected_keys:
-                            st.markdown("**FLUXDATA / composantes**")
-                            st.caption("Aucun paramètre ajustable.")
+                            st.markdown("**FLUXDATA / components**")
+                            st.caption("No adjustable parameters.")
                             st.markdown("---")
 
                         # ── Image ─────────────────────────────────────────
                         if "image" in selected_keys:
-                            st.markdown("**Image modèle**")
+                            st.markdown("**Model image**")
                             img_gamma = st.slider("Gamma γ", 0.05, 1.0, 0.2, 0.05,
                                                   key="em_img_gamma")
                             img_cmap  = st.selectbox("Colormap",
                                                      ["hot", "inferno", "viridis",
                                                       "plasma", "gray", "afmhot"],
                                                      key="em_img_cmap")
-                            img_size  = st.number_input("Taille image (px)", 64, 512, 128,
+                            img_size  = st.number_input("Image size (px)", 64, 512, 128,
                                                          step=64, key="em_img_size")
-                            img_scale = st.number_input("Échelle (mas/px)", 0.1, 10., 1.,
+                            img_scale = st.number_input("Scale (mas/px)", 0.1, 10., 1.,
                                                          step=0.1, key="em_img_scale")
-                            use_wl    = st.checkbox("Filtrer sur λ", value=False,
+                            use_wl    = st.checkbox("Filter on λ", value=False,
                                                     key="em_img_use_wl")
                             wl_val    = None
                             if use_wl:
@@ -1869,12 +1810,8 @@ with tab_model:
                                                           key="em_img_wl") * 1e-6
                             st.markdown("---")
 
-
-
-
-
                     with col_graph:
-                        st.markdown("##### Graphes")
+                        st.markdown("##### Graphs")
 
                         # ── Walkers ───────────────────────────────────────
                         if "walkers" in selected_keys:
@@ -1884,7 +1821,7 @@ with tab_model:
                                 st.pyplot(fw, use_container_width=True)
                                 plt.close(fw)
                             except Exception as exc:
-                                st.warning(f"Walkers : {exc}")
+                                st.warning(f"Walkers: {exc}")
 
                         # ── Corner ────────────────────────────────────────
                         if "corner" in selected_keys:
@@ -1894,7 +1831,7 @@ with tab_model:
                                 st.pyplot(fc, use_container_width=True)
                                 plt.close(fc)
                             except Exception as exc:
-                                st.warning(f"Corner : {exc}")
+                                st.warning(f"Corner: {exc}")
 
                         # ── VIS² / T3PHI ──────────────────────────────────
                         if "vis_t3" in selected_keys:
@@ -1907,30 +1844,29 @@ with tab_model:
                                 sim_plot.compute(computeChi2=False, computeSimulatedData=True)
 
                                 fig_0, ax_0 = sim.plot(["VIS2DATA", "T3PHI"])
-                                
+
                                 ax_0[0].set_xscale(vt_xs)
-                                ax_0[0].set_yscale(vt_v2_ys)                                
+                                ax_0[0].set_yscale(vt_v2_ys)
                                 ax_0[0].set_xlim(vt_xmn*1e7, vt_xmx*1e7)
                                 ax_0[0].set_ylim(vt_v2_ymn, vt_v2_ymx)
                                 ax_0[0].set_title("VIS²")
                                 ax_0[0].grid(True, alpha=0.3)
 
                                 ax_0[1].set_xscale(vt_xs)
-                                ax_0[1].set_yscale(vt_v2_ys)                              
+                                ax_0[1].set_yscale(vt_v2_ys)
                                 ax_0[1].set_xlim(vt_xmn*1e7, vt_xmx*1e7)
                                 ax_0[1].set_ylim(vt_t3_ymn, vt_t3_ymx)
                                 ax_0[1].set_title("T3PHI")
                                 ax_0[1].grid(True, alpha=0.3)
 
-
                                 st.pyplot(fig_0)
 
                             except Exception as exc:
-                                st.warning(f"VIS²/T3PHI : {exc}")
+                                st.warning(f"VIS²/T3PHI: {exc}")
 
-                        # ── FLUX ─────────────────────────────────────────
+                        # ── FLUX ──────────────────────────────────────────
                         if "flux" in selected_keys:
-                            st.markdown("**FLUXDATA / composantes**")
+                            st.markdown("**FLUXDATA / components**")
                             try:
                                 st.session_state.data.useFilter = True
                                 decomp_em = decompose_model_flux(
@@ -1940,7 +1876,8 @@ with tab_model:
                                 st.pyplot(fig_flux_em, use_container_width=True)
                                 plt.close(fig_flux_em)
                             except Exception as exc:
-                                st.warning(f"FLUXDATA : {exc}")
+                                st.warning(f"FLUXDATA: {exc}")
+
                         # ── Image ─────────────────────────────────────────
                         if "image" in selected_keys:
                             try:
@@ -1959,45 +1896,21 @@ with tab_model:
                                             -extent_half, extent_half]
                                 )
                                 plt.colorbar(im_plot, ax=ax_img,
-                                             label=f'Intensité (γ={img_gamma})')
+                                             label=f'Intensity (γ={img_gamma})')
                                 ax_img.set_xlabel("ΔRA (mas)")
                                 ax_img.set_ylabel("ΔDec (mas)")
                                 wl_label = f" @ {wl_val*1e6:.2f} µm" if wl_val else ""
-                                ax_img.set_title(f"Modèle{wl_label}")
+                                ax_img.set_title(f"Model{wl_label}")
                                 st.pyplot(fig_img, use_container_width=True)
                                 plt.close(fig_img)
                             except Exception as exc:
-                                st.warning(f"Image : {exc}")
+                                st.warning(f"Image: {exc}")
 
     # ── Footer ──────────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown(
         "<div style='text-align:center;color:gray;'>"
-        "OIModeler · Modélisation d'interférométrie optique · Basé sur <em>oimodeler</em>"
+        "OIModeler · Optical interferometry modelling · Based on <em>oimodeler</em>"
         "</div>",
         unsafe_allow_html=True,
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
