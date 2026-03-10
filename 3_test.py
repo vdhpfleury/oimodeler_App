@@ -24,16 +24,16 @@ import importlib.util
 
 
 
-# chemin du fichier local
-extlaw_file = Path(__file__).parent / "extlaws" / "FitzIndeb_3.1_VOSA.dat"
+_real_genfromtxt = np.genfromtxt
 
-# importer le module
+def patched_genfromtxt(fname, *args, **kwargs):
+    if "FitzIndeb_3.1_VOSA.dat" in str(fname):
+        fname = Path(__file__).parent / "extlaws" / "FitzIndeb_3.1_VOSA.dat"
+    return _real_genfromtxt(fname, *args, **kwargs)
+
+np.genfromtxt = patched_genfromtxt
+
 import oimodeler
-import oimodeler.oimExtinction as oimExtinction
-
-# patch de la variable globale utilisée par oimodeler
-oimExtinction.FITZINDEB = np.genfromtxt(extlaw_file, unpack=True)
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 0.  Page configuration  (MUST be the first Streamlit call)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1923,6 +1923,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
