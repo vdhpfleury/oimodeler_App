@@ -10,11 +10,16 @@ import copy
 import pickle
 from pathlib import Path
 from contextlib import redirect_stdout
+import sys
+
+# Ajoute le dossier local 'extlaws' au chemin
+sys.path.append(str(Path(__file__).parent / "extlaws"))
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
+
 
 # ── Optional dependencies ────────────────────────────────────────────────
 try:
@@ -1914,3 +1919,4 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
