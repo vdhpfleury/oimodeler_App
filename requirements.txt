@@ -1,4 +1,4 @@
-oimodeler==0.8.1
+oimodeler @ git+https://github.com/oimodeler/oimodeler.git@main
 altair==5.5.0
 astropy==7.1.0
 astropy-iers-data==0.2025.8.18.0.40.14
