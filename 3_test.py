@@ -33,7 +33,7 @@ def patched_genfromtxt(fname, *args, **kwargs):
 
 np.genfromtxt = patched_genfromtxt
 
-import oimodeler
+import oimodeler as oim
 # ═══════════════════════════════════════════════════════════════════════════
 # 0.  Page configuration  (MUST be the first Streamlit call)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1923,6 +1923,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
