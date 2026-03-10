@@ -19,19 +19,28 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 
-# ── Optional dependencies ────────────────────────────────────────────────
-try:
-    import oimodeler as oim
-    OIM_AVAILABLE = True
-    # Redéfinir le chemin du fichier de données
-    oim.oimExtinction.FITZINDEB = np.genfromtxt(
-        Path(__file__).parent / "extlaws" / "FitzIndeb_3.1_VOSA.dat", unpack=True
-    )
+import shutil
+import importlib.util
 
-except ImportError:
-    OIM_AVAILABLE = False
-    st.error("oimodeler is not installed. Install it with: pip install oimodeler")
-    st.stop()
+# Trouver le chemin d'installation de oimodeler
+spec = importlib.util.find_spec("oimodeler")
+oimodeler_path = Path(spec.origin).parent
+
+# Dossier extlaws dans le package installé
+target_extlaws = oimodeler_path / "extlaws"
+
+# Dossier extlaws dans ton repo
+local_extlaws = Path(__file__).parent / "extlaws"
+
+# Créer le dossier si nécessaire
+target_extlaws.mkdir(exist_ok=True)
+
+# Copier les fichiers .dat
+for f in local_extlaws.glob("*.dat"):
+    shutil.copy(f, target_extlaws / f.name)
+
+# Maintenant on peut importer
+import oimodeler as oim
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 0.  Page configuration  (MUST be the first Streamlit call)
@@ -1922,5 +1931,6 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
