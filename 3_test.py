@@ -12,8 +12,6 @@ from pathlib import Path
 from contextlib import redirect_stdout
 import sys
 
-# Ajoute le dossier local 'extlaws' au chemin
-sys.path.append(str(Path(__file__).parent / "extlaws"))
 
 import numpy as np
 import pandas as pd
@@ -25,6 +23,11 @@ import streamlit as st
 try:
     import oimodeler as oim
     OIM_AVAILABLE = True
+    # Redéfinir le chemin du fichier de données
+    oim.oimExtinction.FITZINDEB = np.genfromtxt(
+        Path(__file__).parent / "extlaws" / "FitzIndeb_3.1_VOSA.dat", unpack=True
+    )
+
 except ImportError:
     OIM_AVAILABLE = False
     st.error("oimodeler is not installed. Install it with: pip install oimodeler")
@@ -1919,4 +1922,5 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
