@@ -22,25 +22,17 @@ import streamlit as st
 import shutil
 import importlib.util
 
-# Trouver le chemin d'installation de oimodeler
-spec = importlib.util.find_spec("oimodeler")
-oimodeler_path = Path(spec.origin).parent
 
-# Dossier extlaws dans le package installé
-target_extlaws = oimodeler_path / "extlaws"
 
-# Dossier extlaws dans ton repo
-local_extlaws = Path(__file__).parent / "extlaws"
+# chemin du fichier local
+extlaw_file = Path(__file__).parent / "extlaws" / "FitzIndeb_3.1_VOSA.dat"
 
-# Créer le dossier si nécessaire
-target_extlaws.mkdir(exist_ok=True)
+# importer le module
+import oimodeler
+import oimodeler.oimExtinction as oimExtinction
 
-# Copier les fichiers .dat
-for f in local_extlaws.glob("*.dat"):
-    shutil.copy(f, target_extlaws / f.name)
-
-# Maintenant on peut importer
-import oimodeler as oim
+# patch de la variable globale utilisée par oimodeler
+oimExtinction.FITZINDEB = np.genfromtxt(extlaw_file, unpack=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 0.  Page configuration  (MUST be the first Streamlit call)
@@ -1931,6 +1923,7 @@ with tab_model:
         "</div>",
         unsafe_allow_html=True,
     )
+
 
 
 
