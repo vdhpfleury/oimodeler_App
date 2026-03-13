@@ -1,3 +1,28 @@
+
+
+5. Run the application
+
+To start the application, run the following command from the repository directory:
+
+streamlit run 3_test.py
+
+Your default web browser should automatically open and display the application interface.
+
+(Add screenshot here)
+
+User Guide
+
+In progress.
+
+## Contact
+
+Oimodeler App
+
+
+
+
+
+
 # Oimodeler App
 Simplest way to get in interferometric data modelisation ! 
 
@@ -8,89 +33,81 @@ Simplest way to get in interferometric data modelisation !
  The application provides an intuitive environment where users can load datasets, construct parametric models (e.g. uniform disks, Gaussians, rings), combine multiple components, and explore parameter spaces interactively.
 
 ## Installation
-### 1. Ensure you have the good python version. 
-=> write in your terminal : 
+### 1. Check your Python version
+Open a terminal and run:
 
 ```
 python3 --verison
 ```
-
-If the version is larger than 3.9 your fine otherwise download a python version > 3.9. (see [python website](https://www.python.org/downloads/)). After dowload don't forget to add python to your PATH env. variable.
+If your Python version is 3.9 or higher, you can proceed. Otherwise, install a newer version from the official Python website: (see [python website](https://www.python.org/downloads/)). After installation, make sure Python is added to your system PATH environment variable.
 
 - [x] Python > 3.9
 
-### 2. Ensure you have the git command on your computer. 
-=> write in your terminal : 
 
+### 2. Check that Git is installed
+
+Run the following command in your terminal:
 ```
 git --verison
 ```
 
-should return : git version XXX
+This should return something like: git version X.X.X
 
-Otherwise install it by following Git Documentation [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) according to your operating system (Linux/OS)
+If Git is not installed, follow the installation instructions provided in the official documentation: [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 
 - [x] git on your computer
 
 
 
 ### 3. Clone the git repository.
-
-Eventually you can create a directory Oimodeler_App move to this folder.
-
+You may first create a directory for the application:
 ```
 mkdir OimodelerApp
 cd OimodelerApp
 ```
-
-Then clone the repository with the command :
-
-
+Then clone the repository:
 ```
 git clone https://github.com/vdhpfleury/oimodeler_App.git
 ```
-
-After the clonning succed go to the folder oimodeler_App
+Move into the repository folder:
 
 ```
 cd oimodeler_App
 ```
-
-And tchek all file are present with the ls command : 
+Verify that all files are present:
 
 ```
 ls
 ```
-should return the following list of file/folder : 
+You should see something similar to:
 - 3_test.py   
 - extlaws 
 - README.md  
 - requirements.txt
 
--[x] envirnment ready
+- [x] environement ready
 
 ### 4. Set up the Python dependencies
-In order to work properly, this app need packages & libraries. To install it you can either create a specific virtual environement (see doc here to do so) but can also install all the dependencies directly on your computer thanks to the command : 
+The application requires several Python packages to run.
+You can install them using:
 ```
 pip install -r requirements.txt
 ```
-Of course you need the pip command on your computer. (doc [here](https://pip.pypa.io/en/stable/installation/))
+If pip is not installed on your system, refer to the official documentation:
+(doc [here](https://pip.pypa.io/en/stable/installation/)).
+This install all required dependencies listed in the requirements.txt file.
 
-Then your done !
+Note: using a virtual environment is recommended but optional.
+
+**Then your done !**
 
 ### 5. Run the app
-Each time you want to run the app, you just have to run this command line in your terminal in the repository were the file .py is store : 
+To start the application, run the following command from the repository directory:
 ```
 streamlit run 3_test.py
 ```
 
-A window should be open in your favorite brawser with the welcome app page.
-add image
-
-(Comment ajouter sa à l'environnement de l'ordinateur pour qu'en écrivant simplement oimodeler_app dans le terminal cela lance l'application ?)
-
-
-
+Your default web browser should automatically open and display the application interface.
 
 
 ## User Guide
