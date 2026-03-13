@@ -1,28 +1,5 @@
 
 
-5. Run the application
-
-To start the application, run the following command from the repository directory:
-
-streamlit run 3_test.py
-
-Your default web browser should automatically open and display the application interface.
-
-(Add screenshot here)
-
-User Guide
-
-In progress.
-
-## Contact
-
-Oimodeler App
-
-
-
-
-
-
 # Oimodeler App
 Simplest way to get in interferometric data modelisation ! 
 
