@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analytics import inject_ga
 
+import streamlit as st
 st.write(os.path.dirname(os.path.abspath(__file__)))
 st.write(os.listdir(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,7 +18,6 @@ from contextlib import redirect_stdout
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import streamlit as st
 
 
 import shutil
