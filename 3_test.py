@@ -1,6 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analytics import inject_ga
-
-inject_ga()
 
 import io
 import re
@@ -8,7 +9,6 @@ import copy
 import pickle
 from pathlib import Path
 from contextlib import redirect_stdout
-import sys
 
 
 import numpy as np
