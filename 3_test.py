@@ -1624,7 +1624,7 @@ with tab_model:
                 st.pyplot(fig0)
 
             fig1 = sim.plotWlTemplate([["VIS2DATA"],["T3PHI"]],xunit="micron",figsize=(22,3))
-            fig1.set_legends(0.5,0.8,"$BASELINE$",["VIS2DATA","T3PHI"],fontsize=10,ha="center")
+            #fig1.set_legends(0.5,0.8,"$BASELINE$",["VIS2DATA","T3PHI"],fontsize=10,ha="center")
             ax = fig1.axes[0]
             ax.set_ylim(Vis_Y_min, Vis_Y_max)
             
