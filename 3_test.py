@@ -3,6 +3,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analytics import inject_ga
 
+st.write(os.path.dirname(os.path.abspath(__file__)))
+st.write(os.listdir(os.path.dirname(os.path.abspath(__file__))))
+
 import io
 import re
 import copy
