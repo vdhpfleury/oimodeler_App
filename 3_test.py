@@ -1,14 +1,6 @@
-"""
-OIModeler – Streamlit Application
-=======================================================
+from analytics import inject_ga
 
-"""
-
-"""
-OIModeler – Streamlit Application
-=======================================================
-
-"""
+inject_ga()
 
 import io
 import re
