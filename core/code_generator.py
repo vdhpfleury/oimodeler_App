@@ -13,11 +13,9 @@ import locale
 from datetime import datetime
 import streamlit as st
 
+
 def date():
-    locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
-    now = datetime.now()
-    date_str = now.strftime("%d - %B - %Y")
-    return date_str
+    return datetime.now().strftime("%d/%m/%Y")
 
 
 def generate_fitting_code(method: str, result: dict, data_filename: str,
