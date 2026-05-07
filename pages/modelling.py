@@ -573,7 +573,7 @@ def _render_model_summary() -> None:
             return
 
         sim = oim.oimSimulator(data=data, model=_model)
-        st.write("$\chi²$ : " + f"{sim.chi2r:.2f}")
+        st.write(r"$\chi²$ : " + f"{sim.chi2r:.2f}")
         st.write(sim.model)
 
         col3, col4, col5 = st.columns(3)
