@@ -551,7 +551,7 @@ def _render_model_summary() -> None:
         st.info("No model available. Create or import a model first.")
         return
 
-    data = _get_active_data()
+    data = _get_active_data_with_filter()
     if data is None:
         st.warning("Load OIFITS data first (Data tab).")
         return
