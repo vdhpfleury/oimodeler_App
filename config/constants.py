@@ -1,7 +1,6 @@
 # config/constants.py
 """
 Constantes globales de l'application OIModeler.
-Ce module est purement déclaratif : aucune dépendance Streamlit ou oimodeler.
 """
 
 # ── Couleurs et styles pour les graphes multi-composants ──────────────────
@@ -19,6 +18,7 @@ DEFAULT_PARAM_RANGES: dict[str, tuple] = {
     'flor': (0., 1.), 'la': (0., 50.), 'fh': (0., 1.),
     'fs': (0., 1.), 'fc': (0., 1.), 'kc': (0., 10.),
     'ks': (0., 10.), 'wl0': (0., 10e-6), 'lkr': (0., 1.),
+    'dim':{16,1024}, 'P':(0.01,100), 'width':(0.001, 1000)
 }
 
 DEFAULT_PARAM_INIT: dict[str, float] = {
@@ -26,7 +26,7 @@ DEFAULT_PARAM_INIT: dict[str, float] = {
     'fwhm': 5., 'elong': 1.5, 'pa': 0., 'skw': 0.5, 'skwPa': 0.,
     'w': 5., 'a': 0.5, 'a1': 0.3, 'a2': 0.2, 'dx': 10., 'dy': 10.,
     'hlr': 5., 'flor': 0.5, 'la': 5., 'fh': 0.5, 'fs': 0.5, 'fc': 0.5,
-    'kc': 1., 'ks': 1., 'wl0': 3e-6, 'lkr': 0.5,
+    'kc': 1., 'ks': 1., 'wl0': 3e-6, 'lkr': 0.5, 'dim':128, 'P':0.1, 'width':0.1,
 }
 
 # ── Mapping abréviation CSV → nom complet oimodeler ──────────────────────
@@ -39,5 +39,6 @@ SHORT_TO_OIM: dict[str, str] = {
     'Lo': 'oimLorentz', 'ELo': 'oimELorentz', 'LLDD': 'oimLinearLDD',
     'QLDD': 'oimQuadLDD', 'PLLDD': 'oimPowerLawLDD', 'SqLDD': 'oimSqrtLDD',
     'AEIR': 'oimAEIRing', 'Box': 'oimBox', 'GL': 'oimGaussLorentz',
-    'SHGL': 'oimStarHaloGaussLorentz', 'SHIR': 'oimStarHaloIRing',
+    'SHGL': 'oimStarHaloGaussLorentz', 'SHIR': 'oimStarHaloIRing', 
+    'Gen_comp':'oimSpiral',
 }
