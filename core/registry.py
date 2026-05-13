@@ -38,4 +38,5 @@ def build_registry(oim) -> dict[str, dict]:
         'oimGaussLorentz':        {'class': oim.oimGaussLorentz,        'params': ['x','y','f','elong','pa','hlr','flor'],                              'description': 'Gauss-Lorentzian'},
         'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Star + Gauss-Lorentz halo'},
         'oimStarHaloIRing':       {'class': oim.oimStarHaloIRing,       'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0','lkr','skw','skwPa'],'description': 'Star + ring halo'},
+        'oimSpiral':              {'class': oim.oimSpiral,              'params': ['x','y','f','elong','pa','fwhm','P','width'],                        'description':"Spiral"},
     }
