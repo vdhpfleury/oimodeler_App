@@ -36,6 +36,8 @@ _SLIDER_CFG: dict[str, tuple] = {
     'a':     ("a",                      0.,  1.,   0.5,  0.05),
     'a1':    ("a1",                     0.,  1.,   0.3,  0.05),
     'a2':    ("a2",                     0.,  1.,   0.2,  0.05),
+    'P':     ("P",                      0.,  100.,   0.1,  0.05),
+    'width': ("width",                  0.,  100.,   0.1,  0.05),
 }
 
 
@@ -90,18 +92,43 @@ def render() -> None:
 
     with col_right:
         try:
-            comp_cls  = registry[selected_comp]['class']
-            comp_inst = comp_cls(**visu_params)
-            mdl       = oim.oimModel(comp_inst)
-            im        = mdl.getImage(256, 1, fromFT=True)
+            with st.expander("image parameters"):
+                col1, col2 = st.columns(2)
+                with col1 : 
+                    img_dim = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
+                    px_size = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
+                
+                with col2 : 
+                    gamma = st.number_input("gamma", value=0.2, key="img param gamma")
 
-            fig, ax = plt.subplots(figsize=(6, 6))
-            im_disp = ax.imshow(im ** 0.2, cmap='hot', origin='lower')
-            ax.set_xlabel('X (pixels)')
-            ax.set_ylabel('Y (pixels)')
-            ax.set_title(f'{selected_comp}  –  γ = 0.2')
-            plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
-            safe_pyplot(st, fig)
+
+            try : 
+                comp_cls  = registry[selected_comp]['class']
+                comp_inst = comp_cls(**visu_params)
+                mdl       = oim.oimModel(comp_inst)
+                im        = mdl.getImage(img_dim, px_size, fromFT=False)
+
+                fig, ax = plt.subplots(figsize=(6, 6))
+                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower')
+                ax.set_xlabel('X (pixels)')
+                ax.set_ylabel('Y (pixels)')
+                ax.set_title(f'{selected_comp}  –  γ = {gamma}')
+                plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
+                safe_pyplot(st, fig)
+            
+            except:
+                comp_cls  = registry[selected_comp]['class']
+                comp_inst = comp_cls(**visu_params)
+                mdl       = oim.oimModel(comp_inst)
+                im        = mdl.getImage(img_dim, px_size, fromFT=True)
+
+                fig, ax = plt.subplots(figsize=(6, 6))
+                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower')
+                ax.set_xlabel('X (pixels)')
+                ax.set_ylabel('Y (pixels)')
+                ax.set_title(f'{selected_comp}  –  γ = {gamma}')
+                plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
+                safe_pyplot(st, fig)
 
 
             
