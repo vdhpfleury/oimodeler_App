@@ -254,7 +254,7 @@ def _get_active_data_with_filter():
 
     filters = []
     if expr:
-        filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False))
+        filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=True))
     filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))
     filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N))
     data.setFilter(oim.oimDataFilter(filters))
