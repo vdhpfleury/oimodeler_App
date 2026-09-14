@@ -119,29 +119,45 @@ def render() -> None:
         st.code(code, language='python')
 
     with col_right:
+        with st.expander("image parameters"):
+            col1, col2 = st.columns(2)
+            with col1 :
+                img_dim_raw = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
+                px_size_raw = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
+
+            with col2 :
+                gamma_raw = st.number_input("gamma", value=0.2, key="img param gamma")
+                clip_lo_raw = st.number_input("colormap percentile min", value=0.5,
+                                          min_value=0., max_value=100., key="img param clip lo")
+                clip_hi_raw = st.number_input("colormap percentile max", value=99.5,
+                                          min_value=0., max_value=100., key="img param clip hi")
+                wl_um_raw = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
+                                        max_value=20., key="img param wl")
+
+        with st.expander("visibility vs baseline parameters"):
+            vb1, vb2 = st.columns(2)
+            with vb1:
+                b_max_raw = st.number_input(
+                    "Max baseline (m)", value=200., min_value=1., max_value=1000.,
+                    key="vb param bmax",
+                    help="Same component, parameters and wavelength as the image above.",
+                )
+            with vb2:
+                b_n_raw = st.number_input(
+                    "Number of points", value=200, min_value=10, max_value=1000,
+                    key="vb param n",
+                )
+
         try:
-            with st.expander("image parameters"):
-                col1, col2 = st.columns(2)
-                with col1 :
-                    img_dim_raw = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
-                    px_size_raw = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
-
-                with col2 :
-                    gamma_raw = st.number_input("gamma", value=0.2, key="img param gamma")
-                    clip_lo_raw = st.number_input("colormap percentile min", value=0.5,
-                                              min_value=0., max_value=100., key="img param clip lo")
-                    clip_hi_raw = st.number_input("colormap percentile max", value=99.5,
-                                              min_value=0., max_value=100., key="img param clip hi")
-                    wl_um_raw = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
-                                            max_value=20., key="img param wl")
-
-            # Widget bounds are cosmetic only — img_dim feeds
-            # model.getImage()'s array allocation directly, the concrete
-            # OOM DoS vector from the audit (V6).
+            # Widget bounds are cosmetic only — img_dim/b_n feed array
+            # allocations directly, the concrete OOM DoS vector from the
+            # audit (V6).
             img_dim = num(img_dim_raw, 16, 1024, "Dimension", integer=True)
             px_size = num(px_size_raw, 0.01, 10.0, "Pixel size")
             gamma   = num(gamma_raw, 0.01, 5.0, "Gamma")
             wl_val  = num(wl_um_raw, 0.1, 20.0, "Wavelength") * 1e-6
+            b_max   = num(b_max_raw, 1., 1000., "Max baseline")
+            b_n     = num(b_n_raw, 10, 1000, "Number of points", integer=True)
 
             # Widget bounds aren't server-enforced — re-validate before use.
             clip_lo, clip_hi = sorted((
@@ -149,66 +165,86 @@ def render() -> None:
                 min(max(float(clip_hi_raw), 0.), 100.),
             ))
 
-            # Astronomical convention: RA increases to the left (East left).
-            extent_half = img_dim * px_size / 2
-            extent = [extent_half, -extent_half, -extent_half, extent_half]
-
-            try :
-                comp_cls  = registry[selected_comp]['class']
-                comp_inst = comp_cls(**visu_params)
-                mdl       = oim.oimModel(comp_inst)
-                im        = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=False)
-                if not np.any(im) or not np.all(np.isfinite(im)):
-                    # Some component classes (e.g. radial-profile-based ones
-                    # like oimTempGrad) don't implement a direct image and
-                    # silently fall back to an all-zero stub instead of
-                    # raising — treat that the same as an error so the
-                    # fromFT=True branch below actually runs.
-                    raise ValueError("direct image unavailable or degenerate")
-
-                display_im = im ** gamma
-                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
-                fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
-                                    vmin=vmin, vmax=vmax)
-                ax.set_xlabel('ΔRA (mas)')
-                ax.set_ylabel('ΔDec (mas)')
-                ax.set_title(f'{selected_comp}  –  γ = {gamma}')
-                plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
-                safe_pyplot(st, fig)
-
-            except Exception:
-                # fromFT=False fails for some components (no analytic
-                # image) — fall back to the Fourier-transform path.
-                comp_cls  = registry[selected_comp]['class']
-                comp_inst = comp_cls(**visu_params)
-                mdl       = oim.oimModel(comp_inst)
-                im        = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=True)
-
-                display_im = im ** gamma
-                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
-                fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
-                                    vmin=vmin, vmax=vmax)
-                ax.set_xlabel('ΔRA (mas)')
-                ax.set_ylabel('ΔDec (mas)')
-                ax.set_title(f'{selected_comp}  –  γ = {gamma}')
-                plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
-                safe_pyplot(st, fig)
-
-
-            
-            #fig_uv, ax_uv = plt.subplots(figsize=(6, 6))
-            #u = np.linspace(-100, 100, 200)
-            #v = np.zeros_like(u)
-            #vis = mdl.getComplexCoherentFlux(u, v)
-            #vis_amp = np.abs(vis)
-            #ax_uv.plot(u, vis_amp)
-            #safe_pyplot(st, fig_uv)
-
-
+            comp_cls  = registry[selected_comp]['class']
+            comp_inst = comp_cls(**visu_params)
+            mdl       = oim.oimModel(comp_inst)
+        except InvalidInput as exc:
+            st.warning(str(exc))
         except Exception as e:
-            st.error(f"Cannot display component: {e}")
+            st.error(f"Cannot build component: {e}")
+        else:
+            # ── Image ────────────────────────────────────────────────
+            try:
+                # Astronomical convention: RA increases to the left (East left).
+                extent_half = img_dim * px_size / 2
+                extent = [extent_half, -extent_half, -extent_half, extent_half]
+
+                try:
+                    im = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=False)
+                    if not np.any(im) or not np.all(np.isfinite(im)):
+                        # Some component classes (e.g. radial-profile-based
+                        # ones like oimTempGrad) don't implement a direct
+                        # image and silently fall back to an all-zero stub
+                        # instead of raising — treat that the same as an
+                        # error so the fromFT=True fallback actually runs.
+                        raise ValueError("direct image unavailable or degenerate")
+                except Exception:
+                    # fromFT=False fails for some components (no analytic
+                    # image) — fall back to the Fourier-transform path.
+                    im = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=True)
+
+                display_im = im ** gamma
+                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
+                fig, ax = plt.subplots(figsize=(6, 6))
+                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
+                                    vmin=vmin, vmax=vmax)
+                ax.set_xlabel('ΔRA (mas)')
+                ax.set_ylabel('ΔDec (mas)')
+                ax.set_title(f'{selected_comp}  –  γ = {gamma}')
+                plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
+                safe_pyplot(st, fig)
+            except Exception as e:
+                st.error(f"Cannot display component image: {e}")
+
+            # ── Visibility vs baseline (East-West / North-South) ───────
+            # u (ucoord) is the Fourier conjugate of the component's x /
+            # RA axis, v (vcoord) of y / Dec — same convention as the
+            # image above, not an independent assumption (see
+            # oimComponentFourier.getComplexCoherentFlux: ucoord/vcoord
+            # feed fxp/fyp exactly like x_arr/y_arr do in getImage()).
+            try:
+                baselines = np.linspace(0., b_max, num=b_n)
+                spf   = baselines / wl_val
+                zeros = np.zeros_like(spf)
+
+                ccf_ew = mdl.getComplexCoherentFlux(spf, zeros, wl=wl_val)
+                ccf_ns = mdl.getComplexCoherentFlux(zeros, spf, wl=wl_val)
+
+                v_ew = np.abs(ccf_ew)
+                v_ns = np.abs(ccf_ns)
+                # Normalize by the zero-baseline response (= total flux),
+                # the true maximum for any physically valid (non-negative)
+                # image — same result as /max() but explicit about why.
+                norm = v_ew[0] if v_ew[0] > 0 else 1.0
+                v_ew = v_ew / norm
+                v_ns = v_ns / norm
+
+                fig_vis, ax_vis = plt.subplots(figsize=(6, 4))
+                ax_vis.plot(baselines, v_ew, label='East–West', color='tab:blue')
+                ax_vis.plot(baselines, v_ns, label='North–South', color='tab:orange', ls='--')
+                ax_vis.set_xlabel('Baseline length (m)')
+                ax_vis.set_ylabel('Normalized visibility')
+                ax_vis.set_ylim(-0.02, 1.05)
+                ax_vis.set_title(f'{selected_comp}  –  λ = {wl_val * 1e6:.2f} µm')
+                ax_vis.legend()
+                ax_vis.grid(alpha=0.3)
+                safe_pyplot(st, fig_vis)
+            except Exception:
+                logger.exception("Visibility-vs-baseline rendering failed")
+                st.warning(
+                    "Could not render the visibility-vs-baseline plot for "
+                    "the current settings."
+                )
 
     # ── Aide sur les paramètres ───────────────────────────────────────
     with st.expander("ℹ️ Parameter help"):
