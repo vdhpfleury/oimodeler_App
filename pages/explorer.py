@@ -70,110 +70,108 @@ def render() -> None:
         if k not in ('oimStarHaloGaussLorentz', 'oimStarHaloIRing')
     }
 
-    col_left, col_right = st.columns(2)
+    # ── Block 1 : component selection + parameters ─────────────────────
+    st.markdown("##### Component & parameters")
+    comp_options = list(visu_components.keys())
+    selected_comp_raw = st.selectbox(
+        "Choose a component",
+        comp_options,
+        format_func=lambda x: f"{x}  —  {registry[x]['description']}",
+    )
+    try:
+        # selectbox returns an unrecognized client value as-is — a
+        # forged component name would otherwise reach registry[...]
+        # and raise an unhandled KeyError (V4).
+        selected_comp = choice(selected_comp_raw, comp_options, "Component")
+    except InvalidInput as exc:
+        st.error(str(exc))
+        selected_comp = comp_options[0]
 
-    with col_left:
-        comp_options = list(visu_components.keys())
-        selected_comp_raw = st.selectbox(
-            "Choose a component",
-            comp_options,
-            format_func=lambda x: f"{x}  —  {registry[x]['description']}",
-        )
-        try:
-            # selectbox returns an unrecognized client value as-is — a
-            # forged component name would otherwise reach registry[...]
-            # and raise an unhandled KeyError (V4).
-            selected_comp = choice(selected_comp_raw, comp_options, "Component")
-        except InvalidInput as exc:
-            st.error(str(exc))
-            selected_comp = comp_options[0]
+    required    = visu_components[selected_comp]
+    visu_params: dict = {}
 
-        required    = visu_components[selected_comp]
-        visu_params: dict = {}
+    cols3 = st.columns(3)
+    for i, param in enumerate(required):
+        with cols3[i % 3]:
+            cfg = _SLIDER_CFG.get(param)
+            if cfg:
+                label, mn, mx, dfl, step = cfg
+                visu_params[param] = st.slider(
+                    label, mn, mx, dfl, step, key=f"visu_{param}"
+                )
+            else:
+                visu_params[param] = st.number_input(
+                    param, value=0., key=f"visu_{param}"
+                )
 
-        cols3 = st.columns(3)
-        for i, param in enumerate(required):
-            with cols3[i % 3]:
-                cfg = _SLIDER_CFG.get(param)
-                if cfg:
-                    label, mn, mx, dfl, step = cfg
-                    visu_params[param] = st.slider(
-                        label, mn, mx, dfl, step, key=f"visu_{param}"
-                    )
-                else:
-                    visu_params[param] = st.number_input(
-                        param, value=0., key=f"visu_{param}"
-                    )
+    st.markdown("---")
 
-        # ── Code Python généré ────────────────────────────────────────
-        st.subheader("Associated Python code")
-        params_str = ",\n    ".join(f"{k}={v}" for k, v in visu_params.items())
-        code = (
-            f"import oimodeler as oim\n"
-            f"import matplotlib.pyplot as plt\n\n\n"
-            f"component = oim.{selected_comp}(\n    {params_str}\n)\n"
-            f"model = oim.oimModel(component)\n"
-            f"im = model.getImage(256, 1, fromFT=True)\n\n"
-            f"plt.figure()\nplt.imshow(im**0.2, cmap='hot')\nplt.show()"
-        )
-        st.code(code, language='python')
+    # ── Block 2 : image parameters/plot  |  visibility vs baseline ─────
+    col_img, col_vis = st.columns(2)
 
-    with col_right:
-        with st.expander("image parameters"):
-            col1, col2 = st.columns(2)
-            with col1 :
+    with col_img:
+        st.markdown("##### Image")
+        with st.expander("image parameters", expanded=True):
+            ic1, ic2 = st.columns(2)
+            with ic1:
                 img_dim_raw = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
                 px_size_raw = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
-
-            with col2 :
+                wl_um_raw   = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
+                                          max_value=20., key="img param wl")
+            with ic2:
                 gamma_raw = st.number_input("gamma", value=0.2, key="img param gamma")
                 clip_lo_raw = st.number_input("colormap percentile min", value=0.5,
                                           min_value=0., max_value=100., key="img param clip lo")
                 clip_hi_raw = st.number_input("colormap percentile max", value=99.5,
                                           min_value=0., max_value=100., key="img param clip hi")
-                wl_um_raw = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
-                                        max_value=20., key="img param wl")
 
-        with st.expander("visibility vs baseline parameters"):
+    with col_vis:
+        st.markdown("##### Visibility vs baseline")
+        with st.expander("visibility vs baseline parameters", expanded=True):
             vb1, vb2 = st.columns(2)
             with vb1:
                 b_max_raw = st.number_input(
                     "Max baseline (m)", value=200., min_value=1., max_value=1000.,
                     key="vb param bmax",
-                    help="Same component, parameters and wavelength as the image above.",
                 )
-            with vb2:
                 b_n_raw = st.number_input(
                     "Number of points", value=200, min_value=10, max_value=1000,
                     key="vb param n",
                 )
+            with vb2:
+                vb_wl_um_raw = st.number_input(
+                    "wavelength in µm", value=3.5, min_value=0.1, max_value=20.,
+                    key="vb param wl",
+                )
 
-        try:
-            # Widget bounds are cosmetic only — img_dim/b_n feed array
-            # allocations directly, the concrete OOM DoS vector from the
-            # audit (V6).
-            img_dim = num(img_dim_raw, 16, 1024, "Dimension", integer=True)
-            px_size = num(px_size_raw, 0.01, 10.0, "Pixel size")
-            gamma   = num(gamma_raw, 0.01, 5.0, "Gamma")
-            wl_val  = num(wl_um_raw, 0.1, 20.0, "Wavelength") * 1e-6
-            b_max   = num(b_max_raw, 1., 1000., "Max baseline")
-            b_n     = num(b_n_raw, 10, 1000, "Number of points", integer=True)
+    try:
+        # Widget bounds are cosmetic only — img_dim/b_n feed array
+        # allocations directly, the concrete OOM DoS vector from the
+        # audit (V6).
+        img_dim   = num(img_dim_raw, 16, 1024, "Dimension", integer=True)
+        px_size   = num(px_size_raw, 0.01, 10.0, "Pixel size")
+        gamma     = num(gamma_raw, 0.01, 5.0, "Gamma")
+        wl_val    = num(wl_um_raw, 0.1, 20.0, "Wavelength") * 1e-6
+        b_max     = num(b_max_raw, 1., 1000., "Max baseline")
+        b_n       = num(b_n_raw, 10, 1000, "Number of points", integer=True)
+        vb_wl_val = num(vb_wl_um_raw, 0.1, 20.0, "Visibility wavelength") * 1e-6
 
-            # Widget bounds aren't server-enforced — re-validate before use.
-            clip_lo, clip_hi = sorted((
-                min(max(float(clip_lo_raw), 0.), 100.),
-                min(max(float(clip_hi_raw), 0.), 100.),
-            ))
+        # Widget bounds aren't server-enforced — re-validate before use.
+        clip_lo, clip_hi = sorted((
+            min(max(float(clip_lo_raw), 0.), 100.),
+            min(max(float(clip_hi_raw), 0.), 100.),
+        ))
 
-            comp_cls  = registry[selected_comp]['class']
-            comp_inst = comp_cls(**visu_params)
-            mdl       = oim.oimModel(comp_inst)
-        except InvalidInput as exc:
-            st.warning(str(exc))
-        except Exception as e:
-            st.error(f"Cannot build component: {e}")
-        else:
-            # ── Image ────────────────────────────────────────────────
+        comp_cls  = registry[selected_comp]['class']
+        comp_inst = comp_cls(**visu_params)
+        mdl       = oim.oimModel(comp_inst)
+    except InvalidInput as exc:
+        st.warning(str(exc))
+    except Exception as e:
+        st.error(f"Cannot build component: {e}")
+    else:
+        # ── Image ────────────────────────────────────────────────────
+        with col_img:
             try:
                 # Astronomical convention: RA increases to the left (East left).
                 extent_half = img_dim * px_size / 2
@@ -206,19 +204,20 @@ def render() -> None:
             except Exception as e:
                 st.error(f"Cannot display component image: {e}")
 
-            # ── Visibility vs baseline (East-West / North-South) ───────
-            # u (ucoord) is the Fourier conjugate of the component's x /
-            # RA axis, v (vcoord) of y / Dec — same convention as the
-            # image above, not an independent assumption (see
-            # oimComponentFourier.getComplexCoherentFlux: ucoord/vcoord
-            # feed fxp/fyp exactly like x_arr/y_arr do in getImage()).
+        # ── Visibility vs baseline (East-West / North-South) ───────────
+        # u (ucoord) is the Fourier conjugate of the component's x /
+        # RA axis, v (vcoord) of y / Dec — same convention as the
+        # image above, not an independent assumption (see
+        # oimComponentFourier.getComplexCoherentFlux: ucoord/vcoord
+        # feed fxp/fyp exactly like x_arr/y_arr do in getImage()).
+        with col_vis:
             try:
                 baselines = np.linspace(0., b_max, num=b_n)
-                spf   = baselines / wl_val
+                spf   = baselines / vb_wl_val
                 zeros = np.zeros_like(spf)
 
-                ccf_ew = mdl.getComplexCoherentFlux(spf, zeros, wl=wl_val)
-                ccf_ns = mdl.getComplexCoherentFlux(zeros, spf, wl=wl_val)
+                ccf_ew = mdl.getComplexCoherentFlux(spf, zeros, wl=vb_wl_val)
+                ccf_ns = mdl.getComplexCoherentFlux(zeros, spf, wl=vb_wl_val)
 
                 v_ew = np.abs(ccf_ew)
                 v_ns = np.abs(ccf_ns)
@@ -229,13 +228,13 @@ def render() -> None:
                 v_ew = v_ew / norm
                 v_ns = v_ns / norm
 
-                fig_vis, ax_vis = plt.subplots(figsize=(6, 4))
+                fig_vis, ax_vis = plt.subplots(figsize=(6, 6))
                 ax_vis.plot(baselines, v_ew, label='East–West', color='tab:blue')
                 ax_vis.plot(baselines, v_ns, label='North–South', color='tab:orange', ls='--')
                 ax_vis.set_xlabel('Baseline length (m)')
                 ax_vis.set_ylabel('Normalized visibility')
                 ax_vis.set_ylim(-0.02, 1.05)
-                ax_vis.set_title(f'{selected_comp}  –  λ = {wl_val * 1e6:.2f} µm')
+                ax_vis.set_title(f'{selected_comp}  –  λ = {vb_wl_val * 1e6:.2f} µm')
                 ax_vis.legend()
                 ax_vis.grid(alpha=0.3)
                 safe_pyplot(st, fig_vis)
@@ -246,8 +245,25 @@ def render() -> None:
                     "the current settings."
                 )
 
-    # ── Aide sur les paramètres ───────────────────────────────────────
-    with st.expander("ℹ️ Parameter help"):
+    st.markdown("---")
+
+    # ── Block 3 : reproducible code  |  parameter help ──────────────────
+    col_code, col_help = st.columns(2)
+    with col_code:
+        st.subheader("Associated Python code")
+        params_str = ",\n    ".join(f"{k}={v}" for k, v in visu_params.items())
+        code = (
+            f"import oimodeler as oim\n"
+            f"import matplotlib.pyplot as plt\n\n\n"
+            f"component = oim.{selected_comp}(\n    {params_str}\n)\n"
+            f"model = oim.oimModel(component)\n"
+            f"im = model.getImage(256, 1, fromFT=True)\n\n"
+            f"plt.figure()\nplt.imshow(im**0.2, cmap='hot')\nplt.show()"
+        )
+        st.code(code, language='python')
+
+    with col_help:
+        st.subheader("Parameter help")
         st.markdown("""
         | Param | Description |
         |-------|-------------|

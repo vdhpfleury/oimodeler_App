@@ -679,6 +679,65 @@ def _render_model_summary() -> None:
     except Exception as exc:
         st.warning(f"Template plot error: {exc}")
 
+    # ── Visibility vs baseline (East-West / North-South) ────────────────
+    st.markdown("##### Visibility vs baseline")
+    vb_col1, vb_col2 = st.columns([1, 2])
+    with vb_col1:
+        vb_bmax_raw = st.number_input(
+            "Max baseline (m)", value=200., min_value=1., max_value=1000.,
+            key="ms_vb_bmax",
+        )
+        vb_n_raw = st.number_input(
+            "Number of points", value=200, min_value=10, max_value=1000,
+            key="ms_vb_n",
+        )
+        vb_wl_raw = st.number_input(
+            "Wavelength (µm)", value=3.5, min_value=0.1, max_value=20.,
+            key="ms_vb_wl",
+        )
+    with vb_col2:
+        try:
+            # Widget bounds are cosmetic only — vb_n feeds an array
+            # allocation directly (V6's OOM DoS category).
+            vb_bmax = num(vb_bmax_raw, 1., 1000., "Max baseline")
+            vb_n    = num(vb_n_raw, 10, 1000, "Number of points", integer=True)
+            vb_wl   = num(vb_wl_raw, 0.1, 20.0, "Wavelength") * 1e-6
+
+            # Same convention as the Component Explorer page: ucoord (East-
+            # West) is the Fourier conjugate of the model's x/RA axis,
+            # vcoord (North-South) of y/Dec.
+            baselines = np.linspace(0., vb_bmax, num=vb_n)
+            spf   = baselines / vb_wl
+            zeros = np.zeros_like(spf)
+
+            ccf_ew = _model.getComplexCoherentFlux(spf, zeros, wl=vb_wl)
+            ccf_ns = _model.getComplexCoherentFlux(zeros, spf, wl=vb_wl)
+
+            v_ew = np.abs(ccf_ew)
+            v_ns = np.abs(ccf_ns)
+            norm = v_ew[0] if v_ew[0] > 0 else 1.0
+            v_ew = v_ew / norm
+            v_ns = v_ns / norm
+
+            fig_vb, ax_vb = plt.subplots(figsize=(8, 4))
+            ax_vb.plot(baselines, v_ew, label='East–West', color='tab:blue')
+            ax_vb.plot(baselines, v_ns, label='North–South', color='tab:orange', ls='--')
+            ax_vb.set_xlabel('Baseline length (m)')
+            ax_vb.set_ylabel('Normalized visibility')
+            ax_vb.set_ylim(-0.02, 1.05)
+            ax_vb.set_title(f'{selected}  –  λ = {vb_wl * 1e6:.2f} µm')
+            ax_vb.legend()
+            ax_vb.grid(alpha=0.3)
+            safe_pyplot(st, fig_vb)
+        except InvalidInput as exc:
+            st.warning(str(exc))
+        except Exception:
+            logger.exception("Visibility-vs-baseline rendering failed (Model summary)")
+            st.warning(
+                "Could not render the visibility-vs-baseline plot for "
+                "the current settings."
+            )
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Tab 5 – Model management

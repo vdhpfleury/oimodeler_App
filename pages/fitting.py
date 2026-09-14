@@ -65,7 +65,7 @@ def render() -> None:
         return
 
     # ── Data — Model — Fit method ───────────────────────────────────────
-    st.markdown("### Data — Model — Fit method")
+    st.markdown("### A — Data · Model · Fit method")
 
     _render_dataset_summary()
 
@@ -111,7 +111,7 @@ def render() -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_random(oim, registry, data, model_to_use: str) -> None:
-    st.markdown("##### Random search configuration")
+    st.markdown("##### B — Random search configuration")
     ca1, ca2 = st.columns(2)
     with ca1:
         n_runs_raw   = st.number_input("Number of iterations", 10, 1000, 100, 10)
@@ -188,7 +188,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
     if not st.session_state.optimization_done:
         return
 
-    st.markdown("### Random search results")
+    st.markdown("### C — Random search results")
     st.success(f"Best χ²ᵣ: **{st.session_state.best_chi2:.4f}**")
 
     best_model = st.session_state.get('_random_best_model')
@@ -238,7 +238,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_chi2(oim, registry, data, model_to_use: str) -> None:
-    st.markdown("### scipy χ² Minimization")
+    st.markdown("### B — scipy χ² Minimization")
     opt_dtypes_raw = st.multiselect(
         "Data to fit", FITTABLE_DATA_TYPES,
         default=["VIS2DATA", "T3PHI"], key="chi2_dtypes",
@@ -285,6 +285,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
     r = st.session_state.chi2_result
 
+    st.markdown("### C — Results")
     if r['chi2_final'] > r['chi2_init']:
         st.warning(f"⚠️ Divergence: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
     else:
@@ -394,7 +395,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_grid(oim, registry, data, model_to_use: str) -> None:
-    st.markdown("### Grid search (χ² exploration)")
+    st.markdown("### B — Grid search (χ² exploration)")
 
     grid_dtypes_raw = st.multiselect(
         "Data to fit", FITTABLE_DATA_TYPES,
@@ -540,48 +541,43 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
 
     r = st.session_state.grid_result
 
+    st.markdown("### C — Results")
     if r['chi2_final'] > r['chi2_init']:
         st.warning(f"⚠️ Divergence: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
     else:
         st.success(f"✅ χ²ᵣ: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
 
-    st.markdown("##### Best grid point")
-    _, tbl_grid = get_result_df(r['best_grid_model'], is_fit=False)
-    st.dataframe(tbl_grid, use_container_width=True)
+    # ── Best grid point (table)  |  χ² map — same row ───────────────────
+    col_tbl, col_map = st.columns(2)
+    with col_tbl:
+        st.markdown("##### Best grid point")
+        _, tbl_grid = get_result_df(r['best_grid_model'], is_fit=False)
+        st.dataframe(tbl_grid, use_container_width=True)
 
-    if st.button("💾 Save best grid model", use_container_width=True, key="save_grid"):
-        update_model_from_fit(
-            f"Best_Grid_{r['model_to_use']}", r['model_to_use'],
-            r['best_grid_model'], chi2r=r['chi2_final'],
-        )
-        st.success(f"Model **Best_Grid_{r['model_to_use']}** saved!")
-
-    st.markdown("##### χ² map")
     fig_map = None
-    try:
-        fig_map, _ax_map = r['gfit'].plotMap(
-            plotContour=(len(r['axes']) == 2), plotMinLines=True,
-        )
-        safe_pyplot(st, fig_map, use_container_width=True)
-    except Exception:
-        logger.exception("Grid map rendering failed")
-        st.warning("Could not render the χ² map for this grid.")
+    with col_map:
+        st.markdown("##### χ² map")
+        try:
+            fig_map, _ax_map = r['gfit'].plotMap(
+                plotContour=(len(r['axes']) == 2), plotMinLines=True,
+            )
+            safe_pyplot(st, fig_map, use_container_width=True)
+        except Exception:
+            logger.exception("Grid map rendering failed")
+            st.warning("Could not render the χ² map for this grid.")
 
-    # ── Code reproductible ────────────────────────────────────────────
-    with st.expander("Reproducible Python code", expanded=False):
-        code = generate_fitting_code(
-            method="grid",
-            result={"dtypes": r['dtypes'], "axes": r['axes']},
-            data_filenames=st.session_state.get("selected_files", []),
-            model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-            filter_params=_get_filter_params(),
-            registry=registry,
-        )
-        st.code(code, language="python")
-
-    # ── Download grid + all results as a zip ──────────────────────────
-    st.markdown("---")
     grid_csv = _grid_map_to_csv(r['gfit'], r['axes'])
+
+    # ── Code reproductible (built before the buttons below, so the zip
+    # download can reuse it without recomputation) ─────────────────────
+    code = generate_fitting_code(
+        method="grid",
+        result={"dtypes": r['dtypes'], "axes": r['axes']},
+        data_filenames=st.session_state.get("selected_files", []),
+        model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
+        filter_params=_get_filter_params(),
+        registry=registry,
+    )
     zip_bytes = build_results_zip(
         param_table=tbl_grid,
         code=code,
@@ -589,14 +585,29 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         extra_files={"grid_chi2map.csv": grid_csv},
     )
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(r['model_to_use']))[:100] or "model"
-    st.download_button(
-        "📦 Download results (zip)",
-        data=zip_bytes,
-        file_name=f"grid_results_{safe_model_name}.zip",
-        mime="application/zip",
-        use_container_width=True,
-        key="download_grid_zip",
-    )
+
+    # ── Save / Download — same row, below table + map ───────────────────
+    col_save, col_dl = st.columns(2)
+    with col_save:
+        if st.button("💾 Save best grid model", use_container_width=True, key="save_grid"):
+            update_model_from_fit(
+                f"Best_Grid_{r['model_to_use']}", r['model_to_use'],
+                r['best_grid_model'], chi2r=r['chi2_final'],
+            )
+            st.success(f"Model **Best_Grid_{r['model_to_use']}** saved!")
+    with col_dl:
+        st.download_button(
+            "📦 Download results (zip)",
+            data=zip_bytes,
+            file_name=f"grid_results_{safe_model_name}.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="download_grid_zip",
+        )
+
+    # ── Code reproductible ────────────────────────────────────────────
+    with st.expander("Reproducible Python code", expanded=False):
+        st.code(code, language="python")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -604,7 +615,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_emcee(oim, registry, data, model_to_use: str) -> None:
-    st.markdown("### Emcee MCMC")
+    st.markdown("### B — Emcee MCMC")
 
     model_emcee = build_oim_model(
         oim, registry,
@@ -700,6 +711,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 
     er = st.session_state.emcee_result
 
+    st.markdown("### C — Results")
     st.markdown(f"χ²ᵣ: **{er['chi2_init']:.2f}** → **{er['chi2_final']:.2f}**")
     st.markdown("##### Fitted parameters")
     _, tbl_em = get_result_df(er['best_emcee_model'], is_fit=False)
