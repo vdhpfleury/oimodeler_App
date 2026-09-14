@@ -89,12 +89,14 @@ def update_model_from_fit(new_name: str, base_name: str,
     return updated
 
 
-def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict) -> bytes:
+def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict,
+                      extra_files: dict[str, str] | None = None) -> bytes:
     """
     Empaquette les résultats d'un fit dans un zip en mémoire :
     - le tableau des meilleurs paramètres (CSV)
     - le script Python reproductible (généré par core/code_generator.py)
     - les figures matplotlib déjà générées, une par entrée de `figures`
+    - tout fichier texte additionnel (ex : grille χ² brute d'un grid search)
 
     Ne recalcule rien : les figures sont réutilisées telles quelles.
 
@@ -105,6 +107,8 @@ def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict) -> by
     figures : dict[str, matplotlib.figure.Figure | None]
         Nom de fichier (sans extension) → figure. Une entrée absente ou à
         None est ignorée (ex : une figure qui n'a pas pu être générée).
+    extra_files : dict[str, str] | None
+        Nom de fichier (avec extension) → contenu texte, écrit tel quel.
     """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -116,4 +120,6 @@ def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict) -> by
             img_buf = io.BytesIO()
             fig.savefig(img_buf, format="png", dpi=150, bbox_inches="tight")
             zf.writestr(f"{name}.png", img_buf.getvalue())
+        for filename, content in (extra_files or {}).items():
+            zf.writestr(filename, content)
     return buf.getvalue()

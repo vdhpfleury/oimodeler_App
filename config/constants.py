@@ -44,6 +44,16 @@ FITTABLE_DATA_TYPES: list[str] = [
     'VIS2DATA', 'VISAMP', 'VISPHI', 'T3AMP', 'T3PHI', 'FLUXDATA',
 ]
 
+# ── Bornes serveur pour les méthodes de fit (V4/V6/V7 — widget bounds are
+# cosmetic only, these are what's actually enforced) ───────────────────────
+MAX_EMCEE_WALKERS:   int = 64
+MAX_EMCEE_STEPS:      int = 40000
+# A grid point costs one oimSimulator.compute() call, same order as one
+# Random-search iteration (capped at 1000) — cap the *total* grid (product
+# across all axes) accordingly rather than per-axis alone.
+MAX_GRID_AXIS_POINTS: int = 200
+MAX_GRID_POINTS:      int = 2500
+
 # ── Mapping abréviation CSV → nom complet oimodeler ──────────────────────
 SHORT_TO_OIM: dict[str, str] = {
     'Pt': 'oimPt', 'Bg': 'oimBackground', 'UD': 'oimUD',

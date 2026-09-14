@@ -215,6 +215,33 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             'fig, ax = fitter.simulator.plot(["VIS2DATA", "T3PHI"])',
             "plt.show()",
         ]
+    elif method == "grid":
+        # Regular grid χ² exploration — see
+        # https://oimodeler.readthedocs.io/en/latest/fitter.html#regular-grid-exploration
+        axes = result.get("axes", [])
+        axis_names = [a["name"] for a in axes]
+        mins  = [a["lo"] for a in axes]
+        maxs  = [a["hi"] for a in axes]
+        steps = [
+            (a["hi"] - a["lo"]) / (a["n"] - 1) if a["n"] > 1 else 0.0
+            for a in axes
+        ]
+        lines += [
+            "# ── 5. Regular grid χ² exploration ─────────────────────",
+            f"fitter = oim.oimFitterRegularGrid(data, model, dataTypes={dtypes_str})",
+            f"grid_param_names = {axis_names!r}",
+            "model_params = model.getParameters()",
+            "grid_params = [model_params[n] for n in grid_param_names]",
+            f"fitter.prepare(params=grid_params, min={mins!r}, max={maxs!r}, "
+            f"steps={steps!r})",
+            "fitter.run(progress=True)",
+            "",
+            "fitter.printResults()",
+            "",
+            "# ── 6. Visualization ────────────────────────────────────",
+            f"fig, ax = fitter.plotMap(plotContour={len(axes) == 2}, plotMinLines=True)",
+            "plt.show()",
+        ]
     else:  # emcee
         nwalkers = result.get("nwalkers", 32)
         nsteps   = result.get("nsteps",   1000)

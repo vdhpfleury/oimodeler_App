@@ -59,6 +59,9 @@ _DEFAULTS: dict = {
 
     # Résultats Emcee (idem)
     'emcee_result':         None,
+
+    # Résultats Grid search (idem)
+    'grid_result':          None,
 }
 
 
