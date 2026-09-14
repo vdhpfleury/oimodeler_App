@@ -28,9 +28,13 @@ _DEFAULTS: dict = {
     # Bibliothèque de modèles sauvegardés (dicts sérialisables uniquement)
     'MODEL':                {},
 
-    # Fichiers OIFITS chargés : { nom_fichier: chemin_tmp }
+    # Fichiers OIFITS chargés : { nom_fichier: chemin_session }
     # L'objet oimData réel est dans services/data_service.load_oifits()
-    'loaded_files':         {},   # str → str  (nom → chemin /tmp/...)
+    # Chemin sous services/storage.BASE_DIR / <session id>/, jamais /tmp
+    # (V1/V3 — voir docs/security_audit_2026-09.md). Ce dict est aussi
+    # l'unique table d'autorisation utilisée pour résoudre un nom de
+    # fichier en chemin (V2) : ne jamais reconstruire un chemin ailleurs.
+    'loaded_files':         {},   # str → str  (nom → chemin de session)
     'selected_file':        None, # nom du fichier actif (compat. modelling/fitting)
     'selected_files':       [],   # liste des noms sélectionnés dans l'étape II
 

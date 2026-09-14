@@ -894,30 +894,42 @@ Un point sur lequel je serais catégorique en revanche : **si les utilisateurs s
 
 ## 7. Plan d'action
 
+> **Status update (2026-09-14, `security-hardener` agent run, branch `claude/loving-carson-k5z8v3`):**
+> Blocking items **1–4** are implemented and verified (path-traversal upload
+> attempt rejected, forged widget values rejected, filter-expression
+> allowlist rejects injection attempts while still accepting the real
+> scientific-notation expressions the app generates — see
+> `services/storage.py`, `core/validation.py`, and the updated
+> `pages/data.py` / `pages/modelling.py` / `pages/fitting.py` /
+> `pages/explorer.py`). Items **5–8** (Streamlit config, reverse proxy,
+> container hardening, dependency pinning) are **not yet started** — still
+> open, tracked below. Item 3's widget coverage is intentionally partial:
+> see the note under the table for what was prioritized vs. deferred.
+
 ### Bloquant avant toute mise en ligne
 
-| # | Action | Réf. | Charge estimée |
-|---|--------|------|----------------|
-| 1 | Module `services/storage.py` : répertoire par session, assainissement, quotas, purge | V1, V3, V8 | 3 h |
-| 2 | Supprimer toute reconstruction de chemin ; utiliser `loaded_files` comme table d'autorisation | V2 | 1 h |
-| 3 | Module `core/validation.py` et application à tous les widgets | V4, V6 | 4 h |
-| 4 | Liste blanche sur l'expression de filtre + bornage des longueurs d'onde | V5 | 1 h |
-| 5 | `.streamlit/config.toml` avec `showErrorDetails = "none"` | V15, V12 | 30 min |
-| 6 | Reverse proxy TLS + limitation de débit | V7, V8 | 2 h |
-| 7 | Conteneur non-root, `read_only`, limites mémoire et CPU | V6, V13 | 2 h |
-| 8 | Épingler `oimodeler` sur un commit, passer Streamlit en 1.54+, lockfile avec empreintes | V14 | 1 h |
+| # | Action | Réf. | Charge estimée | Status |
+|---|--------|------|----------------|--------|
+| 1 | Module `services/storage.py` : répertoire par session, assainissement, quotas, purge | V1, V3, V8 | 3 h | ✅ Done — `services/storage.py`, wired into `pages/data.py` upload handler |
+| 2 | Supprimer toute reconstruction de chemin ; utiliser `loaded_files` comme table d'autorisation | V2 | 1 h | ✅ Done — `services/storage.resolve_selected_paths()`, used by all three `_get_active_data_with_filter()` copies (`pages/data.py`, `pages/modelling.py`, `pages/fitting.py`); the `test_files_path`/`test_selected_file` debug variables that reconstructed `/tmp/`-paths are removed |
+| 3 | Module `core/validation.py` et application à tous les widgets | V4, V6 | 4 h | 🟡 Partial — module done; applied to all image-size widgets (`modelling.py`, `explorer.py`, `fitting.py`'s model-image tab) and MCMC steps/walkers/dtypes (`fitting.py`), plus every `selectbox`/`multiselect` that feeds a dict lookup (model names, component types, colormap, method). **Deferred** (not yet re-validated): plot axis-limit number_inputs (cosmetic, no DoS/crash impact), per-parameter component sliders in `explorer.py`'s `_SLIDER_CFG` and `components/param_editor.py`, blackbody/spline interpolator numeric widgets in `modelling.py` Tab 3 (bb_temp/bb_dist/bb_lum, per-point λ/value), CSV import widgets (tracked separately under V17 below) |
+| 4 | Liste blanche sur l'expression de filtre + bornage des longueurs d'onde | V5 | 1 h | ✅ Done — `core/validation.filter_expression()`, applied in `pages/data.py` before the expression is stored in `filter_expr`; wavelength bounds clamped to [0.1, 30.0] µm via `num()`. Note: the audit's first-draft identifier regex rejected the app's own real expressions (Python's float repr uses scientific notation, e.g. `2.9e-06`, and a bare `[A-Za-z_]...` scan matches the `e` as a fake identifier) — replaced with a number-vs-identifier tokenizer so real expressions pass while injection attempts are still rejected |
+| 5 | `.streamlit/config.toml` avec `showErrorDetails = "none"` | V15, V12 | 30 min | ⬜ Not started |
+| 6 | Reverse proxy TLS + limitation de débit | V7, V8 | 2 h | ⬜ Not started |
+| 7 | Conteneur non-root, `read_only`, limites mémoire et CPU | V6, V13 | 2 h | ⬜ Not started |
+| 8 | Épingler `oimodeler` sur un commit, passer Streamlit en 1.54+, lockfile avec empreintes | V14 | 1 h | ⬜ Not started |
 
 ### À traiter dans les deux semaines
 
-| # | Action | Réf. |
-|---|--------|------|
-| 9 | Unifier les trois `_get_active_data_with_filter()` ; filtres dans la clé de cache | V9 |
-| 10 | Sémaphore et délai entre ajustements | V7 |
-| 11 | Renommer `pages/` en `views/` | V11 |
-| 12 | Helper `user_error()` ; supprimer les `{exc}` affichés | V12 |
-| 13 | Chemin de sampler unique par session | V10 |
-| 14 | `.gitignore`, purge des `.pyc` de l'historique, Dependabot | V14 |
-| 15 | Bornes sur l'import CSV, contrainte sur `type_abbr`, échappement des formules | V17 |
+| # | Action | Réf. | Status |
+|---|--------|------|--------|
+| 9 | Unifier les trois `_get_active_data_with_filter()` ; filtres dans la clé de cache | V9 | 🟡 Partial — the three copies no longer reconstruct paths from `test_files_path` (they now all call `services/storage.resolve_selected_paths()`, an allowlist lookup), which removes the V2 angle. They are still three separate function bodies and `keepOldFlag` still differs between `pages/data.py` (`True`) and `pages/modelling.py`/`pages/fitting.py` (`False`) — left as-is to avoid silently changing scientific behavior outside this run's scope. The actual dedup into a single `services/` helper, and folding filter params into the cache key (the mutation-of-shared-cache-object half of V9), are still open |
+| 10 | Sémaphore et délai entre ajustements | V7 | ⬜ Not started (`services/jobs.py` stopgap not yet created) |
+| 11 | Renommer `pages/` en `views/` | V11 | ⬜ Not started |
+| 12 | Helper `user_error()` ; supprimer les `{exc}` affichés | V12 | ⬜ Not started app-wide. Note: the specific `st.error(f"Error ({f.name}): {exc}")` in the old upload handler and the bare `except:`/raw-exception patterns directly inside the blocks touched for V1/V2/V5 (`pages/data.py`'s upload loop and filter section, `pages/explorer.py`'s image-render fallback) were fixed as a byproduct; the ~20 other occurrences the audit counted are untouched |
+| 13 | Chemin de sampler unique par session | V10 | ⬜ Not started (`pages/fitting.py:418`, still `Path("/tmp/sampler_emcee.txt")`) |
+| 14 | `.gitignore`, purge des `.pyc` de l'historique, Dependabot | V14 | ⬜ Not started |
+| 15 | Bornes sur l'import CSV, contrainte sur `type_abbr`, échappement des formules | V17 | ⬜ Not started |
 
 ### Amélioration continue
 
@@ -936,19 +948,19 @@ Un point sur lequel je serais catégorique en revanche : **si les utilisateurs s
 
 ## 8. Checklist de mise en ligne
 
-- [ ] Aucun `open()` ni aucune construction de chemin n'utilise une chaîne provenant du client sans passer par `_safe_name()`
-- [ ] Aucun `f"/tmp/..."` ni concaténation de chemin ne subsiste dans le code (`grep -rn "'/tmp/" .`)
-- [ ] Chaque `number_input`, `slider`, `selectbox`, `multiselect` et `text_input` est revalidé côté serveur
-- [ ] `showErrorDetails = "none"` et aucun `{exc}` affiché à l'utilisateur
-- [ ] Test manuel : upload avec `filename="../../evil.fits"` — doit être rejeté
-- [ ] Test manuel : `multiselect` forcé sur `"../etc/passwd"` — doit être rejeté
-- [ ] Test manuel : deux navigateurs distincts, même nom de fichier, contenus différents — aucune interférence
-- [ ] Test manuel : `pixel number = 999999` via WebSocket forgé — doit être rejeté avant allocation
-- [ ] Le conteneur tourne en non-root, en lecture seule, avec une limite mémoire
-- [ ] TLS actif, HSTS actif, limitation de débit vérifiée sur `/_stcore/upload_file`
-- [ ] La purge des uploads expirés est planifiée et testée
-- [ ] `pip-audit` ne remonte aucune vulnérabilité de sévérité élevée
-- [ ] Une adresse de contact sécurité figure dans le README (vous avez déjà un contact générique — précisez-le)
+- [x] Aucun `open()` ni aucune construction de chemin n'utilise une chaîne provenant du client sans passer par `_safe_name()` — enforced in `services/storage.store()`
+- [x] Aucun `f"/tmp/..."` ni concaténation de chemin ne subsiste dans le code pour les uploads/sélections (`grep -rn "'/tmp/" .` — only remaining hit is the still-open V10 sampler path in `pages/fitting.py:418`, tracked separately)
+- [ ] Chaque `number_input`, `slider`, `selectbox`, `multiselect` et `text_input` est revalidé côté serveur — image-size, MCMC steps/walkers/dtypes, and dict-lookup selectboxes/multiselects done; plot axis limits, per-parameter component sliders, and interpolator/CSV widgets still open (see action-plan item 3 note)
+- [ ] `showErrorDetails = "none"` et aucun `{exc}` affiché à l'utilisateur — config.toml not created yet (item 5); most `{exc}` echoes app-wide still open (item 12), only the ones directly inside the V1/V2/V5 code paths were fixed
+- [x] Test manuel : upload avec `filename="../../evil.fits"` — doit être rejeté — verified: sanitized to a safe basename and stored under the session directory, never escapes `BASE_DIR`
+- [x] Test manuel : `multiselect` forcé sur `"../etc/passwd"` — doit être rejeté — verified via `resolve_selected_paths()`: unknown/forged names are silently dropped, not resolved to a path
+- [ ] Test manuel : deux navigateurs distincts, même nom de fichier, contenus différents — aucune interférence — storage is now session-scoped (verified programmatically that two sessions get distinct directories); not yet verified end-to-end in a running two-browser-tab Streamlit session
+- [x] Test manuel : `pixel number = 999999` via WebSocket forgé — doit être rejeté avant allocation — verified via `core.validation.num()` unit-level (out-of-range/non-finite values raise `InvalidInput`) for every image-size widget listed in action-plan item 3; not re-verified over an actual forged WebSocket frame
+- [ ] Le conteneur tourne en non-root, en lecture seule, avec une limite mémoire — not started (item 7)
+- [ ] TLS actif, HSTS actif, limitation de débit vérifiée sur `/_stcore/upload_file` — not started (item 6)
+- [ ] La purge des uploads expirés est planifiée et testée — `services/storage.purge_expired()` exists and is exercised opportunistically from `store()`, but no external cron/scheduler is configured yet
+- [ ] `pip-audit` ne remonte aucune vulnérabilité de sévérité élevée — not run this pass
+- [ ] Une adresse de contact sécurité figure dans le README (vous avez déjà un contact générique — précisez-le) — not started
 
 ---
 

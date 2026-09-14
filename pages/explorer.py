@@ -8,11 +8,16 @@ Dépendances :
 """
 from __future__ import annotations
 
+import logging
+
 import matplotlib.pyplot as plt
 import streamlit as st
 import numpy as np
 from services.data_service import get_oim, get_registry
+from core.validation import num, choice, InvalidInput
 from components.plots import safe_pyplot
+
+logger = logging.getLogger(__name__)
 
 
 # ── Configuration des sliders par paramètre ───────────────────────────────
@@ -54,11 +59,20 @@ def render() -> None:
     col_left, col_right = st.columns(2)
 
     with col_left:
-        selected_comp = st.selectbox(
+        comp_options = list(visu_components.keys())
+        selected_comp_raw = st.selectbox(
             "Choose a component",
-            list(visu_components.keys()),
+            comp_options,
             format_func=lambda x: f"{x}  —  {registry[x]['description']}",
         )
+        try:
+            # selectbox returns an unrecognized client value as-is — a
+            # forged component name would otherwise reach registry[...]
+            # and raise an unhandled KeyError (V4).
+            selected_comp = choice(selected_comp_raw, comp_options, "Component")
+        except InvalidInput as exc:
+            st.error(str(exc))
+            selected_comp = comp_options[0]
 
         required    = visu_components[selected_comp]
         visu_params: dict = {}
@@ -94,15 +108,21 @@ def render() -> None:
         try:
             with st.expander("image parameters"):
                 col1, col2 = st.columns(2)
-                with col1 : 
-                    img_dim = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
-                    px_size = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
-                
-                with col2 : 
-                    gamma = st.number_input("gamma", value=0.2, key="img param gamma")
+                with col1 :
+                    img_dim_raw = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
+                    px_size_raw = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
 
+                with col2 :
+                    gamma_raw = st.number_input("gamma", value=0.2, key="img param gamma")
 
-            try : 
+            # Widget bounds are cosmetic only — img_dim feeds
+            # model.getImage()'s array allocation directly, the concrete
+            # OOM DoS vector from the audit (V6).
+            img_dim = num(img_dim_raw, 16, 1024, "Dimension", integer=True)
+            px_size = num(px_size_raw, 0.01, 10.0, "Pixel size")
+            gamma   = num(gamma_raw, 0.01, 5.0, "Gamma")
+
+            try :
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
@@ -115,8 +135,10 @@ def render() -> None:
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
                 plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
                 safe_pyplot(st, fig)
-            
-            except:
+
+            except Exception:
+                # fromFT=False fails for some components (no analytic
+                # image) — fall back to the Fourier-transform path.
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
