@@ -118,6 +118,8 @@ def render() -> None:
                                               min_value=0., max_value=100., key="img param clip lo")
                     clip_hi = st.number_input("colormap percentile max", value=99.5,
                                               min_value=0., max_value=100., key="img param clip hi")
+                    wl_um = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
+                                            max_value=20., key="img param wl")
 
             # Astronomical convention: RA increases to the left (East left).
             extent_half = img_dim * px_size / 2
@@ -127,12 +129,20 @@ def render() -> None:
                 min(max(float(clip_lo), 0.), 100.),
                 min(max(float(clip_hi), 0.), 100.),
             ))
+            wl_val = float(wl_um) * 1e-6
 
             try :
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
-                im        = mdl.getImage(img_dim, px_size, fromFT=False)
+                im        = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=False)
+                if not np.any(im) or not np.all(np.isfinite(im)):
+                    # Some component classes (e.g. radial-profile-based ones
+                    # like oimTempGrad) don't implement a direct image and
+                    # silently fall back to an all-zero stub instead of
+                    # raising — treat that the same as an error so the
+                    # fromFT=True branch below actually runs.
+                    raise ValueError("direct image unavailable or degenerate")
 
                 display_im = im ** gamma
                 vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
@@ -149,7 +159,7 @@ def render() -> None:
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
-                im        = mdl.getImage(img_dim, px_size, fromFT=True)
+                im        = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=True)
 
                 display_im = im ** gamma
                 vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])

@@ -518,7 +518,12 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             img_scale = st.number_input("Scale (mas/px)", 0.1, 10., 1.,
                                         step=0.1, key="em_img_scale")
             use_wl    = st.checkbox("Filter on λ", value=False, key="em_img_use_wl")
-            wl_val    = None
+            # extract_model_image()'s own default (3.5 µm) unless overridden below.
+            # Passing wl=None all the way down resolves to wl=0 m inside
+            # oimodeler's getImage(), which is silently wrong for chromatic
+            # components (e.g. oimTempGrad): finite for achromatic ones, NaN
+            # for wavelength-dependent ones.
+            wl_val    = 3.5e-6
             if use_wl:
                 wl_val = st.number_input("λ (µm)", value=3.5, step=0.1,
                                          key="em_img_wl") * 1e-6
