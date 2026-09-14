@@ -56,7 +56,7 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
     ]
 
     file_vars = []
-    for i, fname in enumerate(st.session_state.test_selected_file):
+    for i, fname in enumerate(st.session_state.selected_files):
         vname = f"file{i+1}"
         lines.append(f'{vname} = path + "{fname}"')
         file_vars.append(vname)

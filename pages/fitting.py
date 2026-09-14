@@ -16,6 +16,7 @@ Dépendances :
 from __future__ import annotations
 
 import copy
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -23,6 +24,7 @@ import numpy as np
 import streamlit as st
 
 from services.data_service import get_oim, get_registry, load_oifits,load_oifits_multi
+from services.storage import resolve_selected_paths
 from core.component import ComponentConfig
 from core.model_builder import (
     build_oim_model,
@@ -32,7 +34,10 @@ from core.model_builder import (
 from core.fitting import random_search
 from core.results import get_result_df, update_model_from_fit
 from core.code_generator import generate_fitting_code
+from core.validation import num, choice, choices, InvalidInput
 from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pyplot
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -55,18 +60,28 @@ def render() -> None:
     # ── Sélecteurs ────────────────────────────────────────────────────
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.write(f"{len(data.data)} dataset selected:\n\n {st.session_state.test_selected_file}")
+        st.write(f"{len(data.data)} dataset selected:\n\n {st.session_state.selected_files}")
     with col2:
         model_options = sorted(st.session_state.MODEL.keys())
-        model_to_use  = st.selectbox(
+        model_to_use_raw = st.selectbox(
             "Model to use", options=model_options,
             index=len(model_options) - 1, key="fit_model",
         )
     with col3:
-        methode = st.selectbox(
-            "Method", ["Random", "scipy χ² Minimization", "Emcee"],
+        method_options = ["Random", "scipy χ² Minimization", "Emcee"]
+        methode_raw = st.selectbox(
+            "Method", method_options,
             key="fit_method",
         )
+
+    try:
+        # selectbox returns an unrecognized client value as-is — both
+        # feed a dict/branch lookup right below (V4).
+        model_to_use = choice(model_to_use_raw, model_options, "Model to use")
+        methode      = choice(methode_raw, method_options, "Method")
+    except InvalidInput as exc:
+        st.error(str(exc))
+        return
 
     st.markdown("---")
 
@@ -84,17 +99,28 @@ def render() -> None:
 
 def _render_random(oim, registry, data, model_to_use: str) -> None:
     st.markdown("##### Random search configuration")
+    dtype_options = ["VIS2DATA", "T3PHI", "VISPHI", "T3AMP", "FLUXDATA"]
     ca1, ca2 = st.columns(2)
     with ca1:
-        n_runs   = st.number_input("Number of iterations", 10, 1000, 100, 10)
-        use_seed = st.checkbox("Fixed seed", value=True)
-        seed_val = st.number_input("Seed", 0, 99999, 42) if use_seed else None
+        n_runs_raw   = st.number_input("Number of iterations", 10, 1000, 100, 10)
+        use_seed     = st.checkbox("Fixed seed", value=True)
+        seed_val_raw = st.number_input("Seed", 0, 99999, 42) if use_seed else None
     with ca2:
-        rand_dtypes = st.multiselect(
+        rand_dtypes_raw = st.multiselect(
             "Data to use",
-            ["VIS2DATA", "T3PHI", "VISPHI", "T3AMP", "FLUXDATA"],
+            dtype_options,
             default=["VIS2DATA", "T3PHI"],
         )
+
+    try:
+        # Widget bounds are cosmetic only — n_runs directly drives the
+        # random_search() loop count (V4's "loop/step count" category).
+        n_runs   = num(n_runs_raw, 10, 1000, "Number of iterations", integer=True)
+        seed_val = num(seed_val_raw, 0, 99999, "Seed", integer=True) if use_seed else None
+        rand_dtypes = choices(rand_dtypes_raw, dtype_options, "Data to use")
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
 
     model_comps = st.session_state.MODEL[model_to_use]["components"]
     if not model_comps:
@@ -205,10 +231,16 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
 
 def _render_chi2(oim, registry, data, model_to_use: str) -> None:
     st.markdown("### scipy χ² Minimization")
-    opt_dtypes = st.multiselect(
-        "Data to fit", ["VIS2DATA", "T3PHI", "FLUXDATA"],
+    chi2_dtype_options = ["VIS2DATA", "T3PHI", "FLUXDATA"]
+    opt_dtypes_raw = st.multiselect(
+        "Data to fit", chi2_dtype_options,
         default=["VIS2DATA", "T3PHI"], key="chi2_dtypes",
     )
+    try:
+        opt_dtypes = choices(opt_dtypes_raw, chi2_dtype_options, "Data to fit")
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
 
     model_chi2 = build_oim_model(oim, registry,
                                  st.session_state.MODEL[model_to_use]["components"])
@@ -333,20 +365,35 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     st.markdown("### Emcee MCMC")
 
+    emcee_dtype_options = ["VIS2DATA", "T3PHI", "FLUXDATA"]
+    init_options = ['random', 'gaussian', ""]
     ec1, ec2, ec3, ec4 = st.columns(4)
     with ec1:
-        emcee_dtypes = st.multiselect(
-            "Data to fit", ["VIS2DATA", "T3PHI", "FLUXDATA"],
+        emcee_dtypes_raw = st.multiselect(
+            "Data to fit", emcee_dtype_options,
             default=["VIS2DATA", "T3PHI"], key="emcee_dtypes",
         )
     with ec2:
-        nb_walkers = st.number_input("Walkers", 1, 64, 32, key="emcee_walkers")
+        nb_walkers_raw = st.number_input("Walkers", 1, 64, 32, key="emcee_walkers")
     with ec3:
-        nb_steps = st.number_input("Steps", 0, 40000, 1000, key="emcee_steps")
+        nb_steps_raw = st.number_input("Steps", 0, 40000, 1000, key="emcee_steps")
     with ec4:
-        init_mode = st.selectbox(
-            "Init", ['random', 'gaussian', ""], index=0, key="emcee_init",
+        init_mode_raw = st.selectbox(
+            "Init", init_options, index=0, key="emcee_init",
         )
+
+    try:
+        # Widget bounds are cosmetic only. nb_walkers/nb_steps directly
+        # size the MCMC run — the concrete CPU DoS vector from the audit
+        # (V7's mitigation is a separate semaphore/cooldown workstream,
+        # but the values themselves must still be bounded server-side, V4).
+        emcee_dtypes = choices(emcee_dtypes_raw, emcee_dtype_options, "Data to fit")
+        nb_walkers   = num(nb_walkers_raw, 1, 64, "Walkers", integer=True)
+        nb_steps     = num(nb_steps_raw, 0, 40000, "Steps", integer=True)
+        init_mode    = choice(init_mode_raw, init_options, "Init")
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
 
     model_emcee = build_oim_model(
         oim, registry,
@@ -474,27 +521,37 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 
     # ── MODEL IMAGE ───────────────────────────────────────────────────
     with tab_img:
+        img_cmap_options = ["hot", "inferno", "viridis", "plasma", "gray", "afmhot"]
         col_p, col_g = st.columns([1, 2])
         with col_p:
-            img_gamma = st.slider("Gamma γ", 0.05, 1.0, 0.2, 0.05, key="em_img_gamma")
-            img_cmap  = st.selectbox(
-                "Colormap", ["hot", "inferno", "viridis", "plasma", "gray", "afmhot"],
+            img_gamma_raw = st.slider("Gamma γ", 0.05, 1.0, 0.2, 0.05, key="em_img_gamma")
+            img_cmap_raw  = st.selectbox(
+                "Colormap", img_cmap_options,
                 key="em_img_cmap",
             )
-            img_size  = st.number_input("Image size (px)", 64, 512, 128,
+            img_size_raw  = st.number_input("Image size (px)", 64, 512, 128,
                                         step=64, key="em_img_size")
-            img_scale = st.number_input("Scale (mas/px)", 0.1, 10., 1.,
+            img_scale_raw = st.number_input("Scale (mas/px)", 0.1, 10., 1.,
                                         step=0.1, key="em_img_scale")
             use_wl    = st.checkbox("Filter on λ", value=False, key="em_img_use_wl")
-            wl_val    = None
+            wl_val_raw = None
             if use_wl:
-                wl_val = st.number_input("λ (µm)", value=3.5, step=0.1,
-                                         key="em_img_wl") * 1e-6
+                wl_val_raw = st.number_input("λ (µm)", value=3.5, step=0.1,
+                                         key="em_img_wl")
         with col_g:
             try:
+                # Widget bounds are cosmetic only — img_size/img_scale feed
+                # extract_model_image()'s array allocation directly, the
+                # concrete OOM DoS vector from the audit (V6).
+                img_gamma = num(img_gamma_raw, 0.05, 1.0, "Gamma")
+                img_cmap  = choice(img_cmap_raw, img_cmap_options, "Colormap")
+                img_size  = num(img_size_raw, 64, 512, "Image size", integer=True)
+                img_scale = num(img_scale_raw, 0.1, 10.0, "Scale")
+                wl_val = num(wl_val_raw, 0.1, 30.0, "Wavelength") * 1e-6 if wl_val_raw is not None else None
+
                 img_data    = extract_model_image(oim, er['best_emcee_model'],
-                                                  img_size=int(img_size),
-                                                  img_scale=float(img_scale),
+                                                  img_size=img_size,
+                                                  img_scale=img_scale,
                                                   wl_value=wl_val)
                 display_img = img_data[0, 0] ** img_gamma
                 extent_half = img_size * img_scale / 2
@@ -509,8 +566,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 wl_label = f" @ {wl_val*1e6:.2f} µm" if wl_val else ""
                 ax_img.set_title(f"Model{wl_label}")
                 safe_pyplot(st, fig_img, use_container_width=True)
-            except Exception as exc:
-                st.warning(f"Image: {exc}")
+            except InvalidInput as exc:
+                st.warning(str(exc))
+            except Exception:
+                logger.exception("Model image rendering failed")
+                st.warning("Could not render the model image for the current settings.")
 
     # ── FLUXDATA / components ─────────────────────────────────────────
     with tab_flux:
@@ -549,21 +609,19 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 def _get_active_data_with_filter():
     """
     Retourne l'objet oimData actif avec le filtre appliqué.
-    Utilise le cache de load_oifits() pour ne pas recharger le fichier.
+    Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
+
+    Paths are resolved only via resolve_selected_paths(), i.e. only names
+    already present in st.session_state.loaded_files — never by
+    reconstructing a path from a widget value (V2).
     """
-    oim      = get_oim()
-    filepath = st.session_state.loaded_files.get(st.session_state.selected_file)
+    oim   = get_oim()
+    paths = resolve_selected_paths(st.session_state.get('selected_files', []))
 
-    #st.write(f"filepath : \n\n {filepath}")
-    #st.write(f"test_selected : \n\n {st.session_state.test_selected_file}")
-
-    if filepath is None:
+    if not paths:
         raise ValueError("No file selected.")
 
-    data = load_oifits(filepath)
-
-    data = load_oifits_multi(tuple(st.session_state.test_files_path ))
-    #st.write(f"DATA : \n\n {data}")
+    data = load_oifits_multi(tuple(paths))
 
     expr  = st.session_state.get('filter_expr', '')
     bin_L = st.session_state.get('filter_bin_L', 1)
