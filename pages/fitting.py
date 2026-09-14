@@ -16,6 +16,7 @@ Dépendances :
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -33,7 +34,7 @@ from core.model_builder import (
     extract_model_image,
 )
 from core.fitting import random_search
-from core.results import get_result_df, update_model_from_fit
+from core.results import get_result_df, update_model_from_fit, build_results_zip
 from core.code_generator import generate_fitting_code
 from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pyplot
 
@@ -460,6 +461,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     st.markdown("---")
     st.markdown("#### Results display")
 
+    # Populated by the tabs below, if their figure was generated successfully.
+    # Reused as-is by the "Download results" zip further down — nothing is
+    # regenerated.
+    fig_0 = fig_img = fw = fc = None
+
     tabs = st.tabs(["VIS² / T3PHI", "Model image", "FLUXDATA / components", "Walkers", "Corner plot"])
     tab_vis, tab_img, tab_flux, tab_walk, tab_corner = tabs
 
@@ -579,6 +585,29 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             safe_pyplot(st, fc, use_container_width=True)
         except Exception as exc:
             st.warning(f"Corner: {exc}")
+
+    # ── Download all results as a zip ───────────────────────────────────
+    st.markdown("---")
+    zip_bytes = build_results_zip(
+        param_table=tbl_em,
+        code=code,
+        figures={
+            "data_fit_plot": fig_0,
+            "model_image":   fig_img,
+            "walkers_plot":  fw,
+            "corner_plot":   fc,
+        },
+    )
+    # model_to_use comes from a selectbox — its widget option list isn't
+    # server-enforced, so sanitize before using it in a client-facing filename.
+    safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(er['model_to_use']))[:100] or "model"
+    st.download_button(
+        "📦 Download results (zip)",
+        data=zip_bytes,
+        file_name=f"emcee_results_{safe_model_name}.zip",
+        mime="application/zip",
+        use_container_width=True,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
