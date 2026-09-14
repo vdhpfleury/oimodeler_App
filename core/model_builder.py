@@ -50,10 +50,13 @@ def generate_model_image_preview(oim, registry: dict, comp_list: list, fov:int=1
     im = model.getImage(fov, px_size, wl=wl, fromFT=True)
 
     fig, ax = plt.subplots(figsize=(2.5, 2.5))
+    # Astronomical convention: RA increases to the left (East left). Flipping
+    # the x extent bounds (instead of ax.invert_xaxis()) keeps this correct
+    # regardless of axis limits set elsewhere.
     ax.imshow(im ** gamma, cmap='hot', origin='lower',
-              extent=[-tot_size, tot_size, -tot_size, tot_size])
-    ax.set_xlabel('X mas', fontsize=6)
-    ax.set_ylabel('Y mas', fontsize=6)
+              extent=[tot_size, -tot_size, -tot_size, tot_size])
+    ax.set_xlabel('ΔRA (mas)', fontsize=6)
+    ax.set_ylabel('ΔDec (mas)', fontsize=6)
     ax.tick_params(axis='both', labelsize=6)
     return fig
 

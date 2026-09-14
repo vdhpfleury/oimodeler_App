@@ -295,7 +295,14 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         copy_axes_lines(ax_t3[0], axes_cmp[2])
         axes_cmp[2].set_title("T3PHI")
 
-        axes_cmp[3].imshow(d_img[0, 0] ** 0.2, cmap='hot', origin='lower')
+        # Astronomical convention: RA increases to the left (East left).
+        d_extent_half = d_img.shape[-1] * 0.05 / 2  # matches extract_model_image() default img_scale
+        axes_cmp[3].imshow(
+            d_img[0, 0] ** 0.2, cmap='hot', origin='lower',
+            extent=[d_extent_half, -d_extent_half, -d_extent_half, d_extent_half],
+        )
+        axes_cmp[3].set_xlabel("ΔRA (mas)")
+        axes_cmp[3].set_ylabel("ΔDec (mas)")
         axes_cmp[3].set_title("Model (γ=0.2)")
 
         plt.tight_layout()
@@ -500,9 +507,10 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 extent_half = img_size * img_scale / 2
 
                 fig_img, ax_img = plt.subplots(figsize=(5, 5))
+                # Astronomical convention: RA increases to the left (East left).
                 im_plot = ax_img.imshow(
                     display_img, cmap=img_cmap, origin='lower',
-                    extent=[-extent_half, extent_half, -extent_half, extent_half],
+                    extent=[extent_half, -extent_half, -extent_half, extent_half],
                 )
                 plt.colorbar(im_plot, ax=ax_img, label=f'Intensity (γ={img_gamma})')
                 ax_img.set_xlabel("ΔRA (mas)"); ax_img.set_ylabel("ΔDec (mas)")

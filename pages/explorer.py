@@ -102,20 +102,24 @@ def render() -> None:
                     gamma = st.number_input("gamma", value=0.2, key="img param gamma")
 
 
-            try : 
+            # Astronomical convention: RA increases to the left (East left).
+            extent_half = img_dim * px_size / 2
+            extent = [extent_half, -extent_half, -extent_half, extent_half]
+
+            try :
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
                 im        = mdl.getImage(img_dim, px_size, fromFT=False)
 
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower')
-                ax.set_xlabel('X (pixels)')
-                ax.set_ylabel('Y (pixels)')
+                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower', extent=extent)
+                ax.set_xlabel('ΔRA (mas)')
+                ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
                 plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
                 safe_pyplot(st, fig)
-            
+
             except:
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
@@ -123,9 +127,9 @@ def render() -> None:
                 im        = mdl.getImage(img_dim, px_size, fromFT=True)
 
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower')
-                ax.set_xlabel('X (pixels)')
-                ax.set_ylabel('Y (pixels)')
+                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower', extent=extent)
+                ax.set_xlabel('ΔRA (mas)')
+                ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
                 plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
                 safe_pyplot(st, fig)
