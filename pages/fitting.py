@@ -264,6 +264,19 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         st.dataframe(tbl2, use_container_width=True)
 
     # ── Figure 4 panneaux ─────────────────────────────────────────────
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        chi2_clip_lo = st.number_input("Model image colormap percentile min", 0., 100., 0.5,
+                                       key="chi2_img_clip_lo")
+    with cc2:
+        chi2_clip_hi = st.number_input("Model image colormap percentile max", 0., 100., 99.5,
+                                       key="chi2_img_clip_hi")
+    # Widget bounds aren't server-enforced — re-validate before use.
+    chi2_clip_lo, chi2_clip_hi = sorted((
+        min(max(float(chi2_clip_lo), 0.), 100.),
+        min(max(float(chi2_clip_hi), 0.), 100.),
+    ))
+
     try:
         data.useFilter = True
         decomp = decompose_model_flux(oim, r['best_chi2_model'], data)
@@ -298,9 +311,12 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
         # Astronomical convention: RA increases to the left (East left).
         d_extent_half = d_img.shape[-1] * 0.05 / 2  # matches extract_model_image() default img_scale
+        d_img_disp = d_img[0, 0] ** 0.2
+        d_vmin, d_vmax = np.percentile(d_img_disp, [chi2_clip_lo, chi2_clip_hi])
         axes_cmp[3].imshow(
-            d_img[0, 0] ** 0.2, cmap='hot', origin='lower',
+            d_img_disp, cmap='hot', origin='lower',
             extent=[d_extent_half, -d_extent_half, -d_extent_half, d_extent_half],
+            vmin=d_vmin, vmax=d_vmax,
         )
         axes_cmp[3].set_xlabel("ΔRA (mas)")
         axes_cmp[3].set_ylabel("ΔDec (mas)")
@@ -498,6 +514,10 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             if use_wl:
                 wl_val = st.number_input("λ (µm)", value=3.5, step=0.1,
                                          key="em_img_wl") * 1e-6
+            img_clip_lo = st.number_input("Colormap percentile min", 0., 100., 0.5,
+                                          key="em_img_clip_lo")
+            img_clip_hi = st.number_input("Colormap percentile max", 0., 100., 99.5,
+                                          key="em_img_clip_hi")
         with col_g:
             try:
                 img_data    = extract_model_image(oim, er['best_emcee_model'],
@@ -507,11 +527,19 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 display_img = img_data[0, 0] ** img_gamma
                 extent_half = img_size * img_scale / 2
 
+                # Widget bounds aren't server-enforced — re-validate before use.
+                clip_lo, clip_hi = sorted((
+                    min(max(float(img_clip_lo), 0.), 100.),
+                    min(max(float(img_clip_hi), 0.), 100.),
+                ))
+                vmin, vmax = np.percentile(display_img, [clip_lo, clip_hi])
+
                 fig_img, ax_img = plt.subplots(figsize=(5, 5))
                 # Astronomical convention: RA increases to the left (East left).
                 im_plot = ax_img.imshow(
                     display_img, cmap=img_cmap, origin='lower',
                     extent=[extent_half, -extent_half, -extent_half, extent_half],
+                    vmin=vmin, vmax=vmax,
                 )
                 plt.colorbar(im_plot, ax=ax_img, label=f'Intensity (γ={img_gamma})')
                 ax_img.set_xlabel("ΔRA (mas)"); ax_img.set_ylabel("ΔDec (mas)")

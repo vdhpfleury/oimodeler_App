@@ -112,13 +112,21 @@ def render() -> None:
                     img_dim = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
                     px_size = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
                 
-                with col2 : 
+                with col2 :
                     gamma = st.number_input("gamma", value=0.2, key="img param gamma")
-
+                    clip_lo = st.number_input("colormap percentile min", value=0.5,
+                                              min_value=0., max_value=100., key="img param clip lo")
+                    clip_hi = st.number_input("colormap percentile max", value=99.5,
+                                              min_value=0., max_value=100., key="img param clip hi")
 
             # Astronomical convention: RA increases to the left (East left).
             extent_half = img_dim * px_size / 2
             extent = [extent_half, -extent_half, -extent_half, extent_half]
+            # Widget bounds aren't server-enforced — re-validate before use.
+            clip_lo, clip_hi = sorted((
+                min(max(float(clip_lo), 0.), 100.),
+                min(max(float(clip_hi), 0.), 100.),
+            ))
 
             try :
                 comp_cls  = registry[selected_comp]['class']
@@ -126,8 +134,11 @@ def render() -> None:
                 mdl       = oim.oimModel(comp_inst)
                 im        = mdl.getImage(img_dim, px_size, fromFT=False)
 
+                display_im = im ** gamma
+                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower', extent=extent)
+                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
+                                    vmin=vmin, vmax=vmax)
                 ax.set_xlabel('ΔRA (mas)')
                 ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
@@ -140,8 +151,11 @@ def render() -> None:
                 mdl       = oim.oimModel(comp_inst)
                 im        = mdl.getImage(img_dim, px_size, fromFT=True)
 
+                display_im = im ** gamma
+                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower', extent=extent)
+                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
+                                    vmin=vmin, vmax=vmax)
                 ax.set_xlabel('ΔRA (mas)')
                 ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')

@@ -148,12 +148,31 @@ def _render_basic_model() -> None:
                         with col1 : 
                             model_preview_img_fov    = st.number_input("pixel number", value=128, key="model_preview_img_fov")
                             model_preview_img_pxsize = st.number_input("pixel size in mas", value=0.15, key="model_preview_img_pxsize")
-                        with col2 : 
+                        with col2 :
                             model_preview_img_gamma = st.number_input("gamma", value=0.2, key="model_preview_img_gamma", help="power low apply on each px")
                             model_preview_img_wl = st.number_input("wavelength in µm", value=3.5, key="model_preview_img_wl")
+                        col3, col4 = st.columns(2)
+                        with col3:
+                            model_preview_clip_lo = st.number_input(
+                                "colormap percentile min", value=0.5, min_value=0., max_value=100.,
+                                key="model_preview_clip_lo",
+                                help="Clips colors below this percentile of the displayed image (independent of gamma).",
+                            )
+                        with col4:
+                            model_preview_clip_hi = st.number_input(
+                                "colormap percentile max", value=99.5, min_value=0., max_value=100.,
+                                key="model_preview_clip_hi",
+                            )
+
+                    # Widget bounds aren't server-enforced — re-validate before use.
+                    clip_lo = min(max(float(model_preview_clip_lo), 0.), 100.)
+                    clip_hi = min(max(float(model_preview_clip_hi), 0.), 100.)
+                    if clip_lo > clip_hi:
+                        clip_lo, clip_hi = clip_hi, clip_lo
 
                     fig = generate_model_image_preview(
-                        oim, registry, st.session_state.components, model_preview_img_fov, model_preview_img_pxsize, model_preview_img_gamma, model_preview_img_wl*1e-6
+                        oim, registry, st.session_state.components, model_preview_img_fov, model_preview_img_pxsize, model_preview_img_gamma, model_preview_img_wl*1e-6,
+                        clip_percentile=(clip_lo, clip_hi),
                     )
                     if fig:
                         safe_pyplot(st, fig, use_container_width=False)

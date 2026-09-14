@@ -36,25 +36,36 @@ def build_oim_model(oim, registry: dict, comp_list: list):
     return oim.oimModel(*instances)
 
 
-def generate_model_image_preview(oim, registry: dict, comp_list: list, fov:int=128, px_size:float=0.15, gamma:float=0.2, wl:float=3.5e-6) -> plt.Figure | None:
+def generate_model_image_preview(oim, registry: dict, comp_list: list, fov:int=128, px_size:float=0.15, gamma:float=0.2, wl:float=3.5e-6, clip_percentile: tuple[float, float] | None = (0.5, 99.5)) -> plt.Figure | None:
     """
     Génère une figure matplotlib d'aperçu du modèle (image FT).
     Retourne None si le modèle ne peut pas être construit.
+
+    clip_percentile : (lo, hi) optionnel, en % — vmin/vmax du colormap sont
+        calculés sur l'image (après gamma) via np.percentile(), indépendamment
+        de la correction gamma. None désactive le clipping.
     """
     model = build_oim_model(oim, registry, comp_list)
     if model is None:
         return None
 
-    
+
     tot_size = int(fov * 0.5 * px_size)
     im = model.getImage(fov, px_size, wl=wl, fromFT=True)
+    display_im = im ** gamma
+
+    vmin = vmax = None
+    if clip_percentile is not None:
+        lo, hi = clip_percentile
+        vmin, vmax = np.percentile(display_im, [lo, hi])
 
     fig, ax = plt.subplots(figsize=(2.5, 2.5))
     # Astronomical convention: RA increases to the left (East left). Flipping
     # the x extent bounds (instead of ax.invert_xaxis()) keeps this correct
     # regardless of axis limits set elsewhere.
-    ax.imshow(im ** gamma, cmap='hot', origin='lower',
-              extent=[tot_size, -tot_size, -tot_size, tot_size])
+    ax.imshow(display_im, cmap='hot', origin='lower',
+              extent=[tot_size, -tot_size, -tot_size, tot_size],
+              vmin=vmin, vmax=vmax)
     ax.set_xlabel('ΔRA (mas)', fontsize=6)
     ax.set_ylabel('ΔDec (mas)', fontsize=6)
     ax.tick_params(axis='both', labelsize=6)
