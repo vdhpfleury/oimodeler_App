@@ -18,7 +18,12 @@ DEFAULT_PARAM_RANGES: dict[str, tuple] = {
     'flor': (0., 1.), 'la': (0., 50.), 'fh': (0., 1.),
     'fs': (0., 1.), 'fc': (0., 1.), 'kc': (0., 10.),
     'ks': (0., 10.), 'wl0': (0., 10e-6), 'lkr': (0., 1.),
-    'dim':{16,1024}, 'P':(0.01,100), 'width':(0.001, 1000)
+    'dim': (16, 1024), 'P': (0.01, 100), 'width': (0.001, 1000),
+    # oimTempGrad / oim4CLDD / oimExpRing / oimInnerRim
+    'rin': (0., 50.), 'rout': (0., 200.), 'r0': (0., 50.),
+    'T0': (10., 3000.), 'Mdust': (0., 5.), 'q': (-1., 0.), 'p': (-3., 3.),
+    'kappa_abs': (0., 10.), 'dist': (0., 10000.),
+    'a3': (0., 1.), 'a4': (0., 1.), 'h': (0., 10.), 'incl': (0., 90.),
 }
 
 DEFAULT_PARAM_INIT: dict[str, float] = {
@@ -26,8 +31,18 @@ DEFAULT_PARAM_INIT: dict[str, float] = {
     'fwhm': 5., 'elong': 1.5, 'pa': 0., 'skw': 0.5, 'skwPa': 0.,
     'w': 5., 'a': 0.5, 'a1': 0.3, 'a2': 0.2, 'dx': 10., 'dy': 10.,
     'hlr': 5., 'flor': 0.5, 'la': 5., 'fh': 0.5, 'fs': 0.5, 'fc': 0.5,
-    'kc': 1., 'ks': 1., 'wl0': 3e-6, 'lkr': 0.5, 'dim':128, 'P':0.1, 'width':0.1,
+    'kc': 1., 'ks': 1., 'wl0': 3e-6, 'lkr': 0.5, 'dim': 128, 'P': 0.1, 'width': 0.1,
+    'rin': 0.5, 'rout': 5., 'r0': 1., 'T0': 300., 'Mdust': 0.2,
+    'q': -0.5, 'p': 0., 'kappa_abs': 1., 'dist': 100.,
+    'a3': 0.1, 'a4': 0.1, 'h': 1., 'incl': 30.,
 }
+
+# ── Types de données OIFITS utilisables pour le fit ───────────────────────
+# oim.oimSimulator.compute()/oimFitterMinimize/oimFitterEmcee accept these
+# generically via their `dataTypes` argument — no per-type special-casing.
+FITTABLE_DATA_TYPES: list[str] = [
+    'VIS2DATA', 'VISAMP', 'VISPHI', 'T3AMP', 'T3PHI', 'FLUXDATA',
+]
 
 # ── Mapping abréviation CSV → nom complet oimodeler ──────────────────────
 SHORT_TO_OIM: dict[str, str] = {

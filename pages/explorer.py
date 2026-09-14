@@ -8,11 +8,16 @@ Dépendances :
 """
 from __future__ import annotations
 
+import logging
+
 import matplotlib.pyplot as plt
 import streamlit as st
 import numpy as np
 from services.data_service import get_oim, get_registry
+from core.validation import num, choice, InvalidInput
 from components.plots import safe_pyplot
+
+logger = logging.getLogger(__name__)
 
 
 # ── Configuration des sliders par paramètre ───────────────────────────────
@@ -38,6 +43,20 @@ _SLIDER_CFG: dict[str, tuple] = {
     'a2':    ("a2",                     0.,  1.,   0.2,  0.05),
     'P':     ("P",                      0.,  100.,   0.1,  0.05),
     'width': ("width",                  0.,  100.,   0.1,  0.05),
+    'dim':   ("dim (image dimension px)", 16, 512, 128, 16),
+    'rin':   ("rin (inner radius au)",  0.,  50.,  0.5,  0.1),
+    'rout':  ("rout (outer radius au)", 0.,  200., 5.,   0.5),
+    'r0':    ("r0 (ref. radius au)",    0.1, 50.,  1.,   0.1),
+    'T0':    ("T0 (ref. temperature K)", 10., 3000., 300., 10.),
+    'Mdust': ("Mdust (dust mass Msun)", 0.,  5.,   0.2,  0.05),
+    'q':     ("q (temperature exponent)", -1., 0.,  -0.5, 0.05),
+    'p':     ("p (density exponent)",   -3.,  3.,   0.,   0.1),
+    'kappa_abs': ("kappa_abs (opacity cm2/g)", 0., 10.,  1.,   0.1),
+    'dist':  ("dist (distance pc)",     1.,  10000., 100., 10.),
+    'a3':    ("a3",                     0.,  1.,   0.1,  0.05),
+    'a4':    ("a4",                     0.,  1.,   0.1,  0.05),
+    'h':     ("h (rim height mas)",     0.,  10.,  1.,   0.1),
+    'incl':  ("incl (inclination °)",   0.,  90.,  30.,  1.),
 }
 
 
@@ -54,11 +73,20 @@ def render() -> None:
     col_left, col_right = st.columns(2)
 
     with col_left:
-        selected_comp = st.selectbox(
+        comp_options = list(visu_components.keys())
+        selected_comp_raw = st.selectbox(
             "Choose a component",
-            list(visu_components.keys()),
+            comp_options,
             format_func=lambda x: f"{x}  —  {registry[x]['description']}",
         )
+        try:
+            # selectbox returns an unrecognized client value as-is — a
+            # forged component name would otherwise reach registry[...]
+            # and raise an unhandled KeyError (V4).
+            selected_comp = choice(selected_comp_raw, comp_options, "Component")
+        except InvalidInput as exc:
+            st.error(str(exc))
+            selected_comp = comp_options[0]
 
         required    = visu_components[selected_comp]
         visu_params: dict = {}
@@ -94,38 +122,76 @@ def render() -> None:
         try:
             with st.expander("image parameters"):
                 col1, col2 = st.columns(2)
-                with col1 : 
-                    img_dim = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
-                    px_size = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
-                
-                with col2 : 
-                    gamma = st.number_input("gamma", value=0.2, key="img param gamma")
+                with col1 :
+                    img_dim_raw = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
+                    px_size_raw = st.number_input("px size  in mas", value=0.5, min_value=0.01, max_value=10., key="img param px")
 
+                with col2 :
+                    gamma_raw = st.number_input("gamma", value=0.2, key="img param gamma")
+                    clip_lo_raw = st.number_input("colormap percentile min", value=0.5,
+                                              min_value=0., max_value=100., key="img param clip lo")
+                    clip_hi_raw = st.number_input("colormap percentile max", value=99.5,
+                                              min_value=0., max_value=100., key="img param clip hi")
+                    wl_um_raw = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
+                                            max_value=20., key="img param wl")
 
-            try : 
+            # Widget bounds are cosmetic only — img_dim feeds
+            # model.getImage()'s array allocation directly, the concrete
+            # OOM DoS vector from the audit (V6).
+            img_dim = num(img_dim_raw, 16, 1024, "Dimension", integer=True)
+            px_size = num(px_size_raw, 0.01, 10.0, "Pixel size")
+            gamma   = num(gamma_raw, 0.01, 5.0, "Gamma")
+            wl_val  = num(wl_um_raw, 0.1, 20.0, "Wavelength") * 1e-6
+
+            # Widget bounds aren't server-enforced — re-validate before use.
+            clip_lo, clip_hi = sorted((
+                min(max(float(clip_lo_raw), 0.), 100.),
+                min(max(float(clip_hi_raw), 0.), 100.),
+            ))
+
+            # Astronomical convention: RA increases to the left (East left).
+            extent_half = img_dim * px_size / 2
+            extent = [extent_half, -extent_half, -extent_half, extent_half]
+
+            try :
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
-                im        = mdl.getImage(img_dim, px_size, fromFT=False)
+                im        = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=False)
+                if not np.any(im) or not np.all(np.isfinite(im)):
+                    # Some component classes (e.g. radial-profile-based ones
+                    # like oimTempGrad) don't implement a direct image and
+                    # silently fall back to an all-zero stub instead of
+                    # raising — treat that the same as an error so the
+                    # fromFT=True branch below actually runs.
+                    raise ValueError("direct image unavailable or degenerate")
 
+                display_im = im ** gamma
+                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower')
-                ax.set_xlabel('X (pixels)')
-                ax.set_ylabel('Y (pixels)')
+                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
+                                    vmin=vmin, vmax=vmax)
+                ax.set_xlabel('ΔRA (mas)')
+                ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
                 plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
                 safe_pyplot(st, fig)
-            
-            except:
+
+            except Exception:
+                # fromFT=False fails for some components (no analytic
+                # image) — fall back to the Fourier-transform path.
                 comp_cls  = registry[selected_comp]['class']
                 comp_inst = comp_cls(**visu_params)
                 mdl       = oim.oimModel(comp_inst)
-                im        = mdl.getImage(img_dim, px_size, fromFT=True)
+                im        = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=True)
 
+                display_im = im ** gamma
+                vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im_disp = ax.imshow(im ** gamma, cmap='hot', origin='lower')
-                ax.set_xlabel('X (pixels)')
-                ax.set_ylabel('Y (pixels)')
+                im_disp = ax.imshow(display_im, cmap='hot', origin='lower', extent=extent,
+                                    vmin=vmin, vmax=vmax)
+                ax.set_xlabel('ΔRA (mas)')
+                ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
                 plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
                 safe_pyplot(st, fig)

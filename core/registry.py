@@ -39,4 +39,8 @@ def build_registry(oim) -> dict[str, dict]:
         'oimStarHaloGaussLorentz':{'class': oim.oimStarHaloGaussLorentz,'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0'],'description': 'Star + Gauss-Lorentz halo'},
         'oimStarHaloIRing':       {'class': oim.oimStarHaloIRing,       'params': ['x','y','f','elong','pa','la','flor','fh','fs','fc','kc','ks','wl0','lkr','skw','skwPa'],'description': 'Star + ring halo'},
         'oimSpiral':              {'class': oim.oimSpiral,              'params': ['x','y','f','elong','pa','fwhm','P','width'],                        'description':"Spiral"},
+        'oimTempGrad':            {'class': oim.oimTempGrad,            'params': ['x','y','f','dim','elong','pa','rin','rout','r0','T0','Mdust','q','p','kappa_abs','dist'], 'description': 'Temperature-gradient disk (radial dust density + temperature power laws)'},
+        'oim4CLDD':               {'class': oim.oim4CLDD,               'params': ['x','y','f','d','a1','a2','a3','a4'],                               'description': '4-coefficient limb darkening'},
+        'oimExpRing':             {'class': oim.oimExpRing,             'params': ['x','y','f','elong','pa','dim','d','fwhm'],                          'description': 'Exponential ring (radial profile)'},
+        'oimInnerRim':            {'class': oim.oimInnerRim,            'params': ['x','y','f','pa','dim','d','h','incl'],                              'description': 'Puffed-up inner rim (image-based)'},
     }

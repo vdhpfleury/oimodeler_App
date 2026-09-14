@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import re
 import copy
+import zipfile
 from contextlib import redirect_stdout
 
 import pandas as pd
@@ -86,3 +87,33 @@ def update_model_from_fit(new_name: str, base_name: str,
 
     st.session_state.MODEL[new_name] = updated
     return updated
+
+
+def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict) -> bytes:
+    """
+    Empaquette les résultats d'un fit dans un zip en mémoire :
+    - le tableau des meilleurs paramètres (CSV)
+    - le script Python reproductible (généré par core/code_generator.py)
+    - les figures matplotlib déjà générées, une par entrée de `figures`
+
+    Ne recalcule rien : les figures sont réutilisées telles quelles.
+
+    Paramètres
+    ----------
+    param_table : DataFrame des paramètres du meilleur modèle (get_result_df()).
+    code : script Python reproductible (str).
+    figures : dict[str, matplotlib.figure.Figure | None]
+        Nom de fichier (sans extension) → figure. Une entrée absente ou à
+        None est ignorée (ex : une figure qui n'a pas pu être générée).
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("best_fit_parameters.csv", param_table.to_csv(index=False))
+        zf.writestr("reproducible_fit.py", code)
+        for name, fig in figures.items():
+            if fig is None:
+                continue
+            img_buf = io.BytesIO()
+            fig.savefig(img_buf, format="png", dpi=150, bbox_inches="tight")
+            zf.writestr(f"{name}.png", img_buf.getvalue())
+    return buf.getvalue()
