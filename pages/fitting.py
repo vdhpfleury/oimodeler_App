@@ -23,6 +23,7 @@ import numpy as np
 import streamlit as st
 
 from services.data_service import get_oim, get_registry, load_oifits,load_oifits_multi
+from config.constants import FITTABLE_DATA_TYPES
 from core.component import ComponentConfig
 from core.model_builder import (
     build_oim_model,
@@ -92,7 +93,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
     with ca2:
         rand_dtypes = st.multiselect(
             "Data to use",
-            ["VIS2DATA", "T3PHI", "VISPHI", "T3AMP", "FLUXDATA"],
+            FITTABLE_DATA_TYPES,
             default=["VIS2DATA", "T3PHI"],
         )
 
@@ -206,7 +207,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
 def _render_chi2(oim, registry, data, model_to_use: str) -> None:
     st.markdown("### scipy χ² Minimization")
     opt_dtypes = st.multiselect(
-        "Data to fit", ["VIS2DATA", "T3PHI", "FLUXDATA"],
+        "Data to fit", FITTABLE_DATA_TYPES,
         default=["VIS2DATA", "T3PHI"], key="chi2_dtypes",
     )
 
@@ -343,7 +344,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     ec1, ec2, ec3, ec4 = st.columns(4)
     with ec1:
         emcee_dtypes = st.multiselect(
-            "Data to fit", ["VIS2DATA", "T3PHI", "FLUXDATA"],
+            "Data to fit", FITTABLE_DATA_TYPES,
             default=["VIS2DATA", "T3PHI"], key="emcee_dtypes",
         )
     with ec2:

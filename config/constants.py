@@ -37,6 +37,13 @@ DEFAULT_PARAM_INIT: dict[str, float] = {
     'a3': 0.1, 'a4': 0.1, 'h': 1., 'incl': 30.,
 }
 
+# ── Types de données OIFITS utilisables pour le fit ───────────────────────
+# oim.oimSimulator.compute()/oimFitterMinimize/oimFitterEmcee accept these
+# generically via their `dataTypes` argument — no per-type special-casing.
+FITTABLE_DATA_TYPES: list[str] = [
+    'VIS2DATA', 'VISAMP', 'VISPHI', 'T3AMP', 'T3PHI', 'FLUXDATA',
+]
+
 # ── Mapping abréviation CSV → nom complet oimodeler ──────────────────────
 SHORT_TO_OIM: dict[str, str] = {
     'Pt': 'oimPt', 'Bg': 'oimBackground', 'UD': 'oimUD',
