@@ -72,6 +72,16 @@ def _render_file_upload() -> None:
                 # Rejection reason is already a safe, user-facing message
                 # (bad name/extension, wrong content, quota exceeded).
                 st.error(str(exc))
+            except OSError:
+                # Distinct from a validation rejection: the server itself
+                # couldn't write the upload (e.g. its storage directory is
+                # missing or not writable) — say so rather than a generic
+                # "try again", which just looked like a stuck upload.
+                logger.exception("Upload storage failure for %s", f.name)
+                st.error(
+                    f"Could not save {f.name}: the server's upload storage "
+                    "is unavailable. Contact the administrator."
+                )
             except Exception:
                 logger.exception("Upload failed for %s", f.name)
                 st.error(f"Could not load {f.name}. Please try again.")

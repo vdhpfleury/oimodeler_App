@@ -24,16 +24,24 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
 
 import streamlit as st
 
-# Never /tmp: it is world-writable, often shared with other services, and
-# on many distros it's a tmpfs (RAM) — see V6/V8. Overridable via env var
-# so tests / containers can point it at a dedicated volume.
-BASE_DIR = Path(os.environ.get("OIMODELER_UPLOAD_DIR", "/var/lib/oimodeler/uploads"))
+# The audit's objection to /tmp (V1/V3/V8) was never "/tmp" the literal
+# path — it was a FLAT, PREDICTABLE, world-readable /tmp/<client filename>
+# with no per-session isolation. A per-session random-UUID subdirectory
+# keeps that isolation even under the OS temp dir, so this works
+# out-of-the-box for local/dev use (no root, no manual setup) while a real
+# deployment can still point OIMODELER_UPLOAD_DIR at a dedicated, chowned
+# volume (see docs/security_audit_2026-09.md §5.3's Dockerfile).
+BASE_DIR = Path(
+    os.environ.get("OIMODELER_UPLOAD_DIR")
+    or (Path(tempfile.gettempdir()) / "oimodeler_uploads")
+)
 
 MAX_FILE_BYTES    = 100 * 1024 * 1024   # 100 MB per file
 MAX_SESSION_BYTES = 200 * 1024 * 1024   # 200 MB per session
