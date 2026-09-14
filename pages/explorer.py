@@ -38,6 +38,20 @@ _SLIDER_CFG: dict[str, tuple] = {
     'a2':    ("a2",                     0.,  1.,   0.2,  0.05),
     'P':     ("P",                      0.,  100.,   0.1,  0.05),
     'width': ("width",                  0.,  100.,   0.1,  0.05),
+    'dim':   ("dim (image dimension px)", 16, 512, 128, 16),
+    'rin':   ("rin (inner radius au)",  0.,  50.,  0.5,  0.1),
+    'rout':  ("rout (outer radius au)", 0.,  200., 5.,   0.5),
+    'r0':    ("r0 (ref. radius au)",    0.1, 50.,  1.,   0.1),
+    'T0':    ("T0 (ref. temperature K)", 10., 3000., 300., 10.),
+    'Mdust': ("Mdust (dust mass Msun)", 0.,  5.,   0.2,  0.05),
+    'q':     ("q (temperature exponent)", -1., 0.,  -0.5, 0.05),
+    'p':     ("p (density exponent)",   -3.,  3.,   0.,   0.1),
+    'kappa_abs': ("kappa_abs (opacity cm2/g)", 0., 10.,  1.,   0.1),
+    'dist':  ("dist (distance pc)",     1.,  10000., 100., 10.),
+    'a3':    ("a3",                     0.,  1.,   0.1,  0.05),
+    'a4':    ("a4",                     0.,  1.,   0.1,  0.05),
+    'h':     ("h (rim height mas)",     0.,  10.,  1.,   0.1),
+    'incl':  ("incl (inclination °)",   0.,  90.,  30.,  1.),
 }
 
 

@@ -71,6 +71,12 @@ class ComponentConfig:
         wave_data : longueurs d'onde pour les interpolateurs blackbody
         """
         full = self._full_params(param_values)
+        if 'dim' in full:
+            # 'dim' is an integer pixel/grid-resolution parameter for several
+            # oimodeler component classes (e.g. oimTempGrad, oimExpRing,
+            # oimInnerRim); the UI's generic param editor stores all values
+            # as float, which numpy rejects (e.g. np.linspace(..., dim)).
+            full['dim'] = int(round(full['dim']))
 
         for p, cfg in self.interpolators.items():
             if not cfg.get('enabled', False):
