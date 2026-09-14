@@ -11,14 +11,13 @@ from config.constants import DEFAULT_PARAM_RANGES
 
 import locale
 from datetime import datetime
-import streamlit as st
 
 
 def date():
     return datetime.now().strftime("%d/%m/%Y")
 
 
-def generate_fitting_code(method: str, result: dict, data_filename: str,
+def generate_fitting_code(method: str, result: dict, data_filenames: list,
                            model_comps: list, filter_params: dict,
                            registry: dict) -> str:
     """
@@ -26,18 +25,21 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
 
     Paramètres
     ----------
-    method        : "chi2" ou "emcee"
-    result        : dict contenant dtypes, nwalkers, nsteps, init (emcee)
-    data_filename : nom du fichier OIFITS
-    model_comps   : liste de dicts de composants
-    filter_params : dict avec expr, bin_L, bin_N, norm_L, norm_N
-    registry      : COMPONENT_REGISTRY
+    method         : "chi2" ou "emcee"
+    result         : dict contenant dtypes, nwalkers, nsteps, init (emcee)
+    data_filenames : liste des noms de fichiers OIFITS utilisés pour le fit
+                      (caller passes e.g. st.session_state.test_selected_file –
+                      no Streamlit dependency here, core/ stays pure).
+    model_comps    : liste de dicts de composants
+    filter_params  : dict avec expr, bin_L, bin_N, norm_L, norm_N
+    registry       : COMPONENT_REGISTRY
     """
 
     lines = []
 
     # ── Header ────────────────────────────────────────────────────────
     lines += [
+        "import os",
         "import numpy as np",
         "import oimodeler as oim",
         "import matplotlib.pyplot as plt",
@@ -56,9 +58,11 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
     ]
 
     file_vars = []
-    for i, fname in enumerate(st.session_state.test_selected_file):
+    for i, fname in enumerate(data_filenames):
         vname = f"file{i+1}"
-        lines.append(f'{vname} = path + "{fname}"')
+        # os.path.join (not string concatenation) so this doesn't silently
+        # produce a broken path when `path` isn't filled in with a trailing separator.
+        lines.append(f'{vname} = os.path.join(path, "{fname}")')
         file_vars.append(vname)
 
     files_arg = "[" + ", ".join(file_vars) + "]"
@@ -140,37 +144,58 @@ def generate_fitting_code(method: str, result: dict, data_filename: str,
         "",
     ]
 
-    min_value   = []
-    max_value   = []
-    free_status = []
+    # Build a NAME-keyed mapping instead of zipping two independently-built
+    # sequences positionally. oimModel.getParameters() (see the installed
+    # oimodeler's oimModel.getParameters source) names each scalar parameter
+    # "c{i+1}_{component.shortname}_{param}" (i is 0-based component index,
+    # shortname is a class attribute e.g. oimUD.shortname == "UD"). This is
+    # reproduced here directly from the registry's component classes, so the
+    # generated script looks each parameter up by its real key instead of
+    # assuming getParameters().keys() enumerates in the same order/count as
+    # the registry's declared `params` list.
+    #
+    # Interpolated parameters (oimInterp, built in section 3 above) are
+    # intentionally skipped here: oimodeler expands a single interpolated
+    # parameter into its own sub-parameters (keyed "..._{param}_interp1",
+    # "..._interp2", ...) whose count depends on the interpolator (e.g. the
+    # number of wavelength control points) and isn't known until the
+    # interpolator itself is built. There is no single UI-configured
+    # (min, max, free) triple that applies to them positionally or by name,
+    # so they keep the bounds/free status oimInterp gives them.
+    param_settings = {}
     for i, c in enumerate(model_comps):
         comp_type = c["type"]
+        comp_cls  = registry.get(comp_type, {}).get("class")
+        shortname = comp_cls.shortname.replace(" ", "_") if comp_cls is not None else comp_type
         params    = registry.get(comp_type, {}).get(
             "params", c.get("params", list(c["initial_values"].keys()))
         )
-        
+        interps = c.get("interpolators", {})
 
         for p in params:
+            if p in interps and interps[p].get("enabled", False):
+                continue
             lo, hi = c["param_ranges"].get(p, (None, None))
             free   = p in c.get("free_params", [])
-            min_value.append(lo)
-            max_value.append(hi)
-            free_status.append(free)
-        
-    lines+=[
-        f"min_value = {min_value}",
-        f"max_value = {max_value}",
-        f"free_status = {free_status}",
-        "for i, j, k, l in zip(model.getParameters().keys(), min_value , max_value ,free_status) :",
-        "\tmodel.getParameters()[i].set(min=j, max=k, free=l)",
+            key    = f"c{i+1}_{shortname}_{p}"
+            param_settings[key] = (
+                float(lo) if lo is not None else None,
+                float(hi) if hi is not None else None,
+                bool(free),
+            )
+
+    lines.append("param_settings = {")
+    for key, (lo, hi, free) in param_settings.items():
+        lines.append(f"    {key!r}: ({lo!r}, {hi!r}, {free!r}),")
+    lines.append("}")
+    lines += [
+        "model_params = model.getParameters()",
+        "for key, (lo, hi, free) in param_settings.items():",
+        "    if key in model_params:",
+        "        model_params[key].set(min=lo, max=hi, free=free)",
+        "    else:",
+        "        print(f'Warning: parameter {key} not found on model, skipping.')",
     ]
-
-
-            #param_key = f"{c['name'].replace("oim", f"c{i+1}_")}_{p}"
-            #lines.append(
-            #    f"model.getParameters()['{param_key}']"
-            #    f".set(min={lo!r}, max={hi!r}, free={free})"
-            #)
     lines.append("")
 
     # ── Fitting ───────────────────────────────────────────────────────

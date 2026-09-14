@@ -26,6 +26,7 @@ narwhals==2.1.2
 numpy==2.3.2
 packaging==25.0
 pandas==2.3.2
+pytest==8.3.5
 pillow==11.3.0
 protobuf==6.32.0
 pyarrow==21.0.0

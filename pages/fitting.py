@@ -310,7 +310,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         code = generate_fitting_code(
             method="chi2",
             result={"dtypes": r['dtypes']},
-            data_filename=st.session_state.get("fit_dataset", "data.fits"),
+            data_filenames=st.session_state.get("test_selected_file", []),
             model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
             filter_params=_get_filter_params(),
             registry=registry,
@@ -422,7 +422,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 "nsteps":   er['nsteps'],
                 "init":     er['init'],
             },
-            data_filename=st.session_state.get("fit_dataset", "data.fits"),
+            data_filenames=st.session_state.get("test_selected_file", []),
             model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
             filter_params=_get_filter_params(),
             registry=registry,
