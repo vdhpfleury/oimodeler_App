@@ -13,8 +13,12 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
 
-from services.data_service import get_oim, load_oifits, get_filtered_wavelengths, load_oifits_multi
+from services.data_service import (
+    get_oim, load_oifits, get_filtered_wavelengths, load_oifits_multi,
+    build_data_type_filters,
+)
 from components.plots import safe_pyplot
+from config.constants import FITTABLE_DATA_TYPES
 
 
 def render() -> None:
@@ -62,20 +66,35 @@ def _render_filter_section() -> None:
         #st.write(f"load files :\n {st.session_state.loaded_files}")
 
         ####
-        if "test_loaded_files" not in st.session_state : 
+        if "test_loaded_files" not in st.session_state :
             st.session_state.test_loaded_files   = {}
             st.session_state.test_selected_files = []
             st.session_state.test_files_path = []
+            st.session_state.test_file_dtypes = {}
 
         test = st.multiselect("Select data to use", options=list(st.session_state.loaded_files.keys()))
         #st.write(f"multiselect files :\n {test}")
 
-        test_filpath = ['/tmp/'+str(i) for i in test] 
-        st.session_state.test_files_path = ['/tmp/'+str(i) for i in test] 
+        test_filpath = ['/tmp/'+str(i) for i in test]
+        st.session_state.test_files_path = ['/tmp/'+str(i) for i in test]
 
         #st.write(f"multiselect files path :\n\n {test_filpath}")
 
         st.session_state.test_selected_file = test
+
+        # ── Sélection des types de données par fichier ─────────────────
+        # Certains fichiers n'ont que V2, d'autres que la phase de clôture,
+        # etc. — ceci permet de garder un fichier tout en n'utilisant que
+        # certains de ses observables (voir oim.oimKeepDataTypeFilter).
+        if test:
+            with st.expander("Data types to use per file", expanded=False):
+                for fname in test:
+                    default = st.session_state.test_file_dtypes.get(fname, FITTABLE_DATA_TYPES)
+                    chosen = st.multiselect(
+                        f"Data types — {fname}", FITTABLE_DATA_TYPES,
+                        default=default, key=f"dtypes_sel_{fname}",
+                    )
+                    st.session_state.test_file_dtypes[fname] = chosen
 
         ####
 
@@ -252,7 +271,10 @@ def _get_active_data_with_filter():
     norm_L = st.session_state.get('filter_norm_L', False)
     norm_N = st.session_state.get('filter_norm_N', False)
 
-    filters = []
+    file_order = st.session_state.get('test_selected_file', []) or []
+    file_dtypes = st.session_state.get('test_file_dtypes', {})
+
+    filters = build_data_type_filters(file_dtypes, file_order)
     if expr:
         filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=True))
     filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))

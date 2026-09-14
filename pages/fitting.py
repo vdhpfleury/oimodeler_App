@@ -22,7 +22,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from services.data_service import get_oim, get_registry, load_oifits,load_oifits_multi
+from services.data_service import (
+    get_oim, get_registry, load_oifits, load_oifits_multi, build_data_type_filters,
+)
 from config.constants import FITTABLE_DATA_TYPES
 from core.component import ComponentConfig
 from core.model_builder import (
@@ -608,7 +610,10 @@ def _get_active_data_with_filter():
     norm_L = st.session_state.get('filter_norm_L', False)
     norm_N = st.session_state.get('filter_norm_N', False)
 
-    filters = []
+    file_order = st.session_state.get('test_selected_file', []) or []
+    file_dtypes = st.session_state.get('test_file_dtypes', {})
+
+    filters = build_data_type_filters(file_dtypes, file_order)
     if expr:
         filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False))
     filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))

@@ -95,6 +95,36 @@ def load_oifits_multi(filepaths: tuple):
 # 4. Application d'un filtre spectral (résultat mis en cache)
 # ═══════════════════════════════════════════════════════════════════════════
 
+def build_data_type_filters(file_dtypes: dict[str, list[str]], file_order: list[str]):
+    """
+    Construit les filtres oimKeepDataTypeFilter par fichier (ciblés par index
+    dans file_order, qui doit être le même ordre que celui utilisé pour
+    construire l'objet oimData multi-fichiers).
+
+    Un fichier absent de file_dtypes, ou dont tous les types disponibles
+    sont sélectionnés, n'est pas filtré (aucun objet créé pour lui).
+
+    Paramètres
+    ----------
+    file_dtypes : dict
+        { nom_fichier: [types de données sélectionnés (VIS2DATA, VISAMP, …)] }
+    file_order : list[str]
+        Noms de fichiers dans l'ordre exact utilisé pour construire oimData
+        (déterminant l'index cible des filtres).
+    """
+    from config.constants import FITTABLE_DATA_TYPES  # noqa: PLC0415
+
+    oim = get_oim()
+    all_types = set(FITTABLE_DATA_TYPES)
+    filters = []
+    for idx, fname in enumerate(file_order):
+        selected = file_dtypes.get(fname)
+        if selected is None or set(selected) >= all_types:
+            continue  # pas de sélection explicite, ou tout est sélectionné : no-op
+        filters.append(oim.oimKeepDataTypeFilter(dataType=list(selected), targets=[idx]))
+    return filters
+
+
 @st.cache_data(ttl=600, max_entries=50)
 def get_filtered_wavelengths(filepath: str, expr: str, bin_L: int, bin_N: int) -> list[float]:
     """
