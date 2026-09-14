@@ -24,10 +24,13 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
 
-from services.data_service import get_oim, get_filtered_wavelengths, load_oifits_multi
+from services.data_service import (
+    get_oim, get_filtered_wavelengths, load_oifits_multi, build_data_type_filters,
+)
 from services.storage import store, resolve_selected_paths
 from core.validation import num, choice, filter_expression, InvalidInput
 from components.plots import safe_pyplot
+from config.constants import FITTABLE_DATA_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,23 @@ def _render_filter_section() -> None:
             pass
 
         filepath = st.session_state.loaded_files.get(st.session_state.selected_file)
+
+        # ── Sélection des types de données par fichier ───────────────
+        # Certains fichiers n'ont que V2, d'autres que la phase de clôture,
+        # etc. — ceci permet de garder un fichier tout en n'utilisant que
+        # certains de ses observables (voir oim.oimKeepDataTypeFilter).
+        if selected:
+            with st.expander("Data types to use per file", expanded=False):
+                for fname in selected:
+                    default = st.session_state.file_dtypes.get(fname, FITTABLE_DATA_TYPES)
+                    chosen_raw = st.multiselect(
+                        f"Data types — {fname}", FITTABLE_DATA_TYPES,
+                        default=default, key=f"dtypes_sel_{fname}",
+                    )
+                    # multiselect can echo back an unrecognized client value
+                    # as-is (V4) — drop anything outside the known types.
+                    chosen = [t for t in chosen_raw if t in FITTABLE_DATA_TYPES]
+                    st.session_state.file_dtypes[fname] = chosen
 
         # ── Paramètres de filtre ──────────────────────────────────────
         n_ranges_raw = st.radio("Number of spectral ranges", [1, 2],
@@ -274,7 +294,10 @@ def _get_active_data_with_filter():
     norm_L = st.session_state.get('filter_norm_L', False)
     norm_N = st.session_state.get('filter_norm_N', False)
 
-    filters = []
+    file_order = st.session_state.get('selected_files', []) or []
+    file_dtypes = st.session_state.get('file_dtypes', {})
+
+    filters = build_data_type_filters(file_dtypes, file_order)
     if expr:
         filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=True))
     filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))

@@ -27,7 +27,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from services.data_service import get_oim, get_registry, load_oifits, load_oifits_multi
+from services.data_service import (
+    get_oim, get_registry, load_oifits, load_oifits_multi, build_data_type_filters,
+)
 from services.storage import resolve_selected_paths
 from core.component import make_comp_dict, get_comp_by_name
 from core.model_builder import (
@@ -182,6 +184,18 @@ def _render_basic_model() -> None:
                         with col2 :
                             model_preview_img_gamma_raw = st.number_input("gamma", value=0.2, key="model_preview_img_gamma", help="power low apply on each px")
                             model_preview_img_wl_raw = st.number_input("wavelength in µm", value=3.5, key="model_preview_img_wl")
+                        col3, col4 = st.columns(2)
+                        with col3:
+                            model_preview_clip_lo_raw = st.number_input(
+                                "colormap percentile min", value=0.5, min_value=0., max_value=100.,
+                                key="model_preview_clip_lo",
+                                help="Clips colors below this percentile of the displayed image (independent of gamma).",
+                            )
+                        with col4:
+                            model_preview_clip_hi_raw = st.number_input(
+                                "colormap percentile max", value=99.5, min_value=0., max_value=100.,
+                                key="model_preview_clip_hi",
+                            )
 
                     try:
                         # Widget bounds are cosmetic only — these feed
@@ -192,8 +206,15 @@ def _render_basic_model() -> None:
                         model_preview_img_gamma  = num(model_preview_img_gamma_raw, 0.01, 5.0, "Gamma")
                         model_preview_img_wl     = num(model_preview_img_wl_raw, 0.1, 30.0, "Wavelength")
 
+                        # Widget bounds aren't server-enforced — re-validate before use.
+                        clip_lo, clip_hi = sorted((
+                            min(max(float(model_preview_clip_lo_raw), 0.), 100.),
+                            min(max(float(model_preview_clip_hi_raw), 0.), 100.),
+                        ))
+
                         fig = generate_model_image_preview(
-                            oim, registry, st.session_state.components, model_preview_img_fov, model_preview_img_pxsize, model_preview_img_gamma, model_preview_img_wl*1e-6
+                            oim, registry, st.session_state.components, model_preview_img_fov, model_preview_img_pxsize, model_preview_img_gamma, model_preview_img_wl*1e-6,
+                            clip_percentile=(clip_lo, clip_hi),
                         )
                         if fig:
                             safe_pyplot(st, fig, use_container_width=False)
@@ -731,7 +752,10 @@ def _get_active_data_with_filter():
     norm_L = st.session_state.get('filter_norm_L', False)
     norm_N = st.session_state.get('filter_norm_N', False)
 
-    filters = []
+    file_order = st.session_state.get('selected_files', []) or []
+    file_dtypes = st.session_state.get('file_dtypes', {})
+
+    filters = build_data_type_filters(file_dtypes, file_order)
     if expr:
         filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False))
     filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))

@@ -37,6 +37,7 @@ _DEFAULTS: dict = {
     'loaded_files':         {},   # str → str  (nom → chemin de session)
     'selected_file':        None, # nom du fichier actif (compat. modelling/fitting)
     'selected_files':       [],   # liste des noms sélectionnés dans l'étape II
+    'file_dtypes':          {},   # str → list[str]  (nom → types de données gardés)
 
     # Paramètres de filtrage spectral actifs
     'filter_expr':          '',
