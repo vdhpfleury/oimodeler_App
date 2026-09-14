@@ -28,7 +28,10 @@ from services.data_service import (
     get_oim, get_registry, load_oifits, load_oifits_multi, build_data_type_filters,
 )
 from services.storage import resolve_selected_paths
-from config.constants import FITTABLE_DATA_TYPES
+from config.constants import (
+    FITTABLE_DATA_TYPES, MAX_EMCEE_WALKERS, MAX_EMCEE_STEPS,
+    MAX_GRID_AXIS_POINTS, MAX_GRID_POINTS,
+)
 from core.component import ComponentConfig
 from core.model_builder import (
     build_oim_model,
@@ -61,18 +64,20 @@ def render() -> None:
         st.warning("⚠️ No OIFITS data loaded. Go to the Data tab first.")
         return
 
-    # ── Sélecteurs ────────────────────────────────────────────────────
-    col1, col2, col3 = st.columns(3)
+    # ── Data — Model — Fit method ───────────────────────────────────────
+    st.markdown("### Data — Model — Fit method")
+
+    _render_dataset_summary()
+
+    col1, col2 = st.columns(2)
     with col1:
-        st.write(f"{len(data.data)} dataset selected:\n\n {st.session_state.selected_files}")
-    with col2:
         model_options = sorted(st.session_state.MODEL.keys())
         model_to_use_raw = st.selectbox(
             "Model to use", options=model_options,
             index=len(model_options) - 1, key="fit_model",
         )
-    with col3:
-        method_options = ["Random", "scipy χ² Minimization", "Emcee"]
+    with col2:
+        method_options = ["Random", "scipy χ² Minimization", "Grid search", "Emcee"]
         methode_raw = st.selectbox(
             "Method", method_options,
             key="fit_method",
@@ -87,12 +92,16 @@ def render() -> None:
         st.error(str(exc))
         return
 
+    _render_model_summary(model_to_use)
+
     st.markdown("---")
 
     if methode == "Random":
         _render_random(oim, registry, data, model_to_use)
     elif methode == "scipy χ² Minimization":
         _render_chi2(oim, registry, data, model_to_use)
+    elif methode == "Grid search":
+        _render_grid(oim, registry, data, model_to_use)
     else:
         _render_emcee(oim, registry, data, model_to_use)
 
@@ -129,10 +138,6 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
     if not model_comps:
         st.warning("The selected model is empty.")
         return
-
-    with st.expander(f"Model summary « {model_to_use} »"):
-        for c in model_comps:
-            st.write(f"**{c['name']}** ({c['type']}) — free: {', '.join(c['free_params'])}")
 
     if st.button("🚀 Run random search", type="primary", use_container_width=True):
         configs = [
@@ -384,11 +389,238 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Grid search — regular grid χ² exploration
+# https://oimodeler.readthedocs.io/en/latest/fitter.html#regular-grid-exploration
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _render_grid(oim, registry, data, model_to_use: str) -> None:
+    st.markdown("### Grid search (χ² exploration)")
+
+    grid_dtypes_raw = st.multiselect(
+        "Data to fit", FITTABLE_DATA_TYPES,
+        default=["VIS2DATA", "T3PHI"], key="grid_dtypes",
+    )
+    try:
+        grid_dtypes = choices(grid_dtypes_raw, FITTABLE_DATA_TYPES, "Data to fit")
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
+
+    model_comps = st.session_state.MODEL[model_to_use]["components"]
+    if not model_comps:
+        st.warning("The selected model is empty.")
+        return
+
+    model_grid = build_oim_model(oim, registry, model_comps)
+    if model_grid is None:
+        st.error("Cannot build model.")
+        return
+
+    free_params = model_grid.getFreeParameters()
+    if not free_params:
+        st.warning("The current model has no free parameters to explore.")
+        return
+    free_names = sorted(free_params.keys())
+
+    ndim_options = [1, 2] if len(free_names) >= 2 else [1]
+    ndim_raw = st.radio(
+        "Grid dimensions", ndim_options, horizontal=True, key="grid_ndim",
+        help="oimodeler's regular grid explorer supports any dimensionality; "
+             "this app limits it to 1D/2D to keep a single grid search bounded.",
+    )
+    try:
+        ndim = choice(ndim_raw, tuple(ndim_options), "Grid dimensions")
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
+    if ndim == 2 and len(free_names) < 2:
+        st.warning(
+            "The current model has only one free parameter — a 2D grid "
+            "needs at least two."
+        )
+        return
+
+    axis_raw = []
+    gcols = st.columns(ndim)
+    for i in range(ndim):
+        with gcols[i]:
+            st.markdown(f"**Axis {i + 1}**")
+            # Default each axis to a distinct free parameter (axis 2 to the
+            # 2nd one, etc.) — st.selectbox otherwise defaults every axis to
+            # index 0, so two axes would start on the same parameter and
+            # immediately fail the "must use different parameters" check
+            # below with no obvious way to notice why the button is gone.
+            name_raw = st.selectbox(
+                "Parameter", free_names, key=f"grid_param_{i}",
+                index=min(i, len(free_names) - 1),
+            )
+            p = free_params.get(name_raw)
+            lo_default = float(p.min) if p is not None and p.min is not None else 0.0
+            hi_default = float(p.max) if p is not None and p.max is not None else 1.0
+            lo_raw = st.number_input("Min", value=lo_default, key=f"grid_lo_{i}")
+            hi_raw = st.number_input("Max", value=hi_default, key=f"grid_hi_{i}")
+            n_raw  = st.number_input(
+                "Grid points", 2, MAX_GRID_AXIS_POINTS, 20, key=f"grid_n_{i}",
+            )
+            axis_raw.append({'name_raw': name_raw, 'lo_raw': lo_raw,
+                             'hi_raw': hi_raw, 'n_raw': n_raw})
+
+    try:
+        # Widget bounds are cosmetic only — re-validate before use (V4).
+        # A grid point costs one simulator.compute() call, so the *total*
+        # (product across axes) is what's actually bounded, not just each
+        # axis independently (V6/V7's DoS-by-large-computation category).
+        axes = []
+        total_points = 1
+        for i, a in enumerate(axis_raw):
+            name = choice(a['name_raw'], free_names, f"Axis {i + 1} parameter")
+            lo   = num(a['lo_raw'], -1e12, 1e12, f"Axis {i + 1} min")
+            hi   = num(a['hi_raw'], -1e12, 1e12, f"Axis {i + 1} max")
+            if lo >= hi:
+                raise InvalidInput(f"Axis {i + 1}: min must be smaller than max.")
+            n = num(a['n_raw'], 2, MAX_GRID_AXIS_POINTS, f"Axis {i + 1} grid points",
+                    integer=True)
+            total_points *= n
+            axes.append({'name': name, 'lo': lo, 'hi': hi, 'n': n})
+
+        if len({a['name'] for a in axes}) != len(axes):
+            raise InvalidInput("Grid axes must use different parameters.")
+        if total_points > MAX_GRID_POINTS:
+            raise InvalidInput(
+                f"Grid too large: {total_points} points requested "
+                f"(max {MAX_GRID_POINTS}). Reduce the grid points per axis."
+            )
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
+
+    st.caption(
+        f"Grid size: {total_points} point"
+        f"{'s' if total_points != 1 else ''} "
+        f"({' × '.join(str(a['n']) for a in axes)})"
+    )
+
+    if st.button("🧮 Run grid search", type="primary", use_container_width=True):
+        data.useFilter = True
+        try:
+            model_init = copy.deepcopy(model_grid)
+            sim_init   = oim.oimSimulator(data=data, model=model_init)
+            sim_init.compute(computeChi2=True, computeSimulatedData=False)
+            chi2_init  = sim_init.chi2r
+
+            gfit = oim.oimFitterRegularGrid(data, model_grid, dataTypes=grid_dtypes)
+            grid_param_objs = [free_params[a['name']] for a in axes]
+            gfit.prepare(
+                params=grid_param_objs,
+                min=[a['lo'] for a in axes],
+                max=[a['hi'] for a in axes],
+                steps=[(a['hi'] - a['lo']) / (a['n'] - 1) for a in axes],
+            )
+            with st.spinner("Grid search running …", show_time=True):
+                gfit.run(progress=False)
+
+            st.session_state.grid_result = {
+                'model_initial':   model_init,
+                'best_grid_model': gfit.simulator.model,
+                'chi2_init':       chi2_init,
+                'chi2_final':      gfit.simulator.chi2r,
+                'gfit':            gfit,
+                'model_to_use':    model_to_use,
+                'dtypes':          grid_dtypes,
+                'axes':            axes,
+            }
+            st.success("✅ Grid search complete!")
+            st.balloons()
+        except Exception as exc:
+            logger.exception("Grid search failed")
+            st.error(f"Grid search error: {exc}")
+
+    if st.session_state.grid_result is None:
+        return
+
+    r = st.session_state.grid_result
+
+    if r['chi2_final'] > r['chi2_init']:
+        st.warning(f"⚠️ Divergence: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
+    else:
+        st.success(f"✅ χ²ᵣ: {r['chi2_init']:.2f} → {r['chi2_final']:.2f}")
+
+    st.markdown("##### Best grid point")
+    _, tbl_grid = get_result_df(r['best_grid_model'], is_fit=False)
+    st.dataframe(tbl_grid, use_container_width=True)
+
+    if st.button("💾 Save best grid model", use_container_width=True, key="save_grid"):
+        update_model_from_fit(
+            f"Best_Grid_{r['model_to_use']}", r['model_to_use'],
+            r['best_grid_model'], chi2r=r['chi2_final'],
+        )
+        st.success(f"Model **Best_Grid_{r['model_to_use']}** saved!")
+
+    st.markdown("##### χ² map")
+    fig_map = None
+    try:
+        fig_map, _ax_map = r['gfit'].plotMap(
+            plotContour=(len(r['axes']) == 2), plotMinLines=True,
+        )
+        safe_pyplot(st, fig_map, use_container_width=True)
+    except Exception:
+        logger.exception("Grid map rendering failed")
+        st.warning("Could not render the χ² map for this grid.")
+
+    # ── Code reproductible ────────────────────────────────────────────
+    with st.expander("Reproducible Python code", expanded=False):
+        code = generate_fitting_code(
+            method="grid",
+            result={"dtypes": r['dtypes'], "axes": r['axes']},
+            data_filenames=st.session_state.get("selected_files", []),
+            model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
+            filter_params=_get_filter_params(),
+            registry=registry,
+        )
+        st.code(code, language="python")
+
+    # ── Download grid + all results as a zip ──────────────────────────
+    st.markdown("---")
+    grid_csv = _grid_map_to_csv(r['gfit'], r['axes'])
+    zip_bytes = build_results_zip(
+        param_table=tbl_grid,
+        code=code,
+        figures={"chi2_map": fig_map},
+        extra_files={"grid_chi2map.csv": grid_csv},
+    )
+    safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(r['model_to_use']))[:100] or "model"
+    st.download_button(
+        "📦 Download results (zip)",
+        data=zip_bytes,
+        file_name=f"grid_results_{safe_model_name}.zip",
+        mime="application/zip",
+        use_container_width=True,
+        key="download_grid_zip",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Emcee
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     st.markdown("### Emcee MCMC")
+
+    model_emcee = build_oim_model(
+        oim, registry,
+        st.session_state.MODEL[model_to_use]["components"],
+    )
+    if model_emcee is None:
+        st.error("Cannot build model.")
+        return
+
+    # Rule of thumb defaults, from the current model's free-parameter count
+    # (emcee needs at least 2x the dimensionality of walkers to move at
+    # all): 2*nfree+1 walkers, up to 500 steps per free parameter — both
+    # clamped to the server-enforced caps below, never exceeding them.
+    nb_free         = len(model_emcee.getFreeParameters())
+    default_walkers = min(max(2 * nb_free + 1, 1), MAX_EMCEE_WALKERS)
+    default_steps   = min(max(500 * nb_free, 0), MAX_EMCEE_STEPS)
 
     init_options = ['random', 'gaussian', ""]
     ec1, ec2, ec3, ec4 = st.columns(4)
@@ -398,9 +630,15 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             default=["VIS2DATA", "T3PHI"], key="emcee_dtypes",
         )
     with ec2:
-        nb_walkers_raw = st.number_input("Walkers", 1, 64, 32, key="emcee_walkers")
+        nb_walkers_raw = st.number_input(
+            "Walkers", 1, MAX_EMCEE_WALKERS, default_walkers, key="emcee_walkers",
+            help=f"Default: 2×(free parameters)+1 = {default_walkers} for this model.",
+        )
     with ec3:
-        nb_steps_raw = st.number_input("Steps", 0, 40000, 1000, key="emcee_steps")
+        nb_steps_raw = st.number_input(
+            "Steps", 0, MAX_EMCEE_STEPS, default_steps, key="emcee_steps",
+            help=f"Default: min(500×(free parameters), {MAX_EMCEE_STEPS}) = {default_steps} for this model.",
+        )
     with ec4:
         init_mode_raw = st.selectbox(
             "Init", init_options, index=0, key="emcee_init",
@@ -412,19 +650,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         # (V7's mitigation is a separate semaphore/cooldown workstream,
         # but the values themselves must still be bounded server-side, V4).
         emcee_dtypes = choices(emcee_dtypes_raw, FITTABLE_DATA_TYPES, "Data to fit")
-        nb_walkers   = num(nb_walkers_raw, 1, 64, "Walkers", integer=True)
-        nb_steps     = num(nb_steps_raw, 0, 40000, "Steps", integer=True)
+        nb_walkers   = num(nb_walkers_raw, 1, MAX_EMCEE_WALKERS, "Walkers", integer=True)
+        nb_steps     = num(nb_steps_raw, 0, MAX_EMCEE_STEPS, "Steps", integer=True)
         init_mode    = choice(init_mode_raw, init_options, "Init")
     except InvalidInput as exc:
         st.warning(str(exc))
-        return
-
-    model_emcee = build_oim_model(
-        oim, registry,
-        st.session_state.MODEL[model_to_use]["components"],
-    )
-    if model_emcee is None:
-        st.error("Cannot build model.")
         return
 
     if st.button("▶️ Run Emcee", type="primary"):
@@ -748,4 +978,70 @@ def _get_filter_params() -> dict:
         "norm_L": st.session_state.get("filter_norm_L", False),
         "norm_N": st.session_state.get("filter_norm_N", False),
     }
+
+
+def _render_dataset_summary() -> None:
+    """Lists the selected datasets, their per-file data types, and the
+    spectral filter/binning currently applied — the same information every
+    fit method below uses, shown once instead of duplicated per method."""
+    selected = st.session_state.get('selected_files', []) or []
+    st.markdown(f"**Datasets** — {len(selected)} selected")
+    if not selected:
+        st.caption("No dataset selected — go to the Data tab.")
+        return
+
+    file_dtypes = st.session_state.get('file_dtypes', {})
+    for fname in selected:
+        dtypes = file_dtypes.get(fname)
+        dtypes_txt = ", ".join(dtypes) if dtypes else "all available types"
+        st.markdown(f"- `{fname}` — data types: {dtypes_txt}")
+
+    fp = _get_filter_params()
+    filt_bits = []
+    if fp["expr"]:
+        filt_bits.append(f"wavelength filter: `{fp['expr']}`")
+    filt_bits.append(f"binning L={fp['bin_L']}, N={fp['bin_N']}")
+    norm_bits = [b for b, on in (("L", fp["norm_L"]), ("N", fp["norm_N"])) if on]
+    if norm_bits:
+        filt_bits.append(f"σ normalized: {', '.join(norm_bits)}")
+    st.caption("Filters applied: " + " · ".join(filt_bits))
+
+
+def _render_model_summary(model_to_use: str) -> None:
+    """Recap, per component, of every parameter's current value, bounds,
+    and free/fixed status for the model about to be fit."""
+    comps = st.session_state.MODEL.get(model_to_use, {}).get("components", [])
+    with st.expander(f"Model components — « {model_to_use} »", expanded=False):
+        if not comps:
+            st.caption("This model has no components.")
+            return
+        for c in comps:
+            free = set(c.get("free_params", []))
+            params = c.get("params", list(c["initial_values"].keys()))
+            rows = []
+            for p in params:
+                lo, hi = c.get("param_ranges", {}).get(p, (None, None))
+                interp = c.get("interpolators", {}).get(p, {}).get("enabled", False)
+                rows.append({
+                    "Parameter": p,
+                    "Value":     c["initial_values"].get(p),
+                    "Min":       lo,
+                    "Max":       hi,
+                    "Free":      "interpolated" if interp else (p in free),
+                })
+            st.markdown(f"**{c['name']}** ({c['type']})")
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _grid_map_to_csv(gfit, axes: list[dict]) -> str:
+    """Flattens a completed oimFitterRegularGrid's χ² map into a CSV table
+    (one row per grid point: each axis' value + the resulting χ²ᵣ) — the
+    raw grid data behind `chi2_map.png`, savable independently of the plot."""
+    header = [a['name'] for a in axes] + ['chi2r']
+    lines = [",".join(header)]
+    for idx in np.ndindex(*gfit.gridSize):
+        coords = [repr(float(gfit.grid[d][idx[d]])) for d in range(len(axes))]
+        chi2 = repr(float(gfit.chi2rMap[idx]))
+        lines.append(",".join(coords + [chi2]))
+    return "\n".join(lines)
 
