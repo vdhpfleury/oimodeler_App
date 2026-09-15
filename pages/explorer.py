@@ -216,8 +216,15 @@ def render() -> None:
                 spf   = baselines / vb_wl_val
                 zeros = np.zeros_like(spf)
 
-                ccf_ew = mdl.getComplexCoherentFlux(spf, zeros, wl=vb_wl_val)
-                ccf_ns = mdl.getComplexCoherentFlux(zeros, spf, wl=vb_wl_val)
+                # At the zero-baseline point, oimodeler's Bessel-based
+                # visibility formulas (e.g. 2*J1(x)/x for a uniform disk)
+                # hit a 0/0 — already handled correctly internally via
+                # np.nan_to_num(..., nan=1), the true V(0)=1 limit, but
+                # numpy still warns on the underlying division. Silenced
+                # here since the result is right; not silenced globally.
+                with np.errstate(invalid='ignore', divide='ignore'):
+                    ccf_ew = mdl.getComplexCoherentFlux(spf, zeros, wl=vb_wl_val)
+                    ccf_ns = mdl.getComplexCoherentFlux(zeros, spf, wl=vb_wl_val)
 
                 v_ew = np.abs(ccf_ew)
                 v_ns = np.abs(ccf_ns)
