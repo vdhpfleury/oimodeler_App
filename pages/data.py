@@ -113,9 +113,20 @@ def _render_file_upload() -> None:
 
 def _render_filter_section() -> None:
     with st.expander("II. Data info & filters", expanded=True):
+        # Explicit key: keeps the selection stable and immune to Streamlit
+        # regenerating an implicit auto-key for this widget on re-render;
+        # also lets us sanitize a stale entry below without touching the
+        # multiselect's own default.
+        options = list(st.session_state.loaded_files.keys())
+        stale = [n for n in st.session_state.get('data_selected_files', []) if n not in options]
+        if stale:
+            st.session_state.data_selected_files = [
+                n for n in st.session_state.data_selected_files if n not in stale
+            ]
         raw_selected = st.multiselect(
             "Select data to use",
-            options=list(st.session_state.loaded_files.keys()),
+            options=options,
+            key="data_selected_files",
         )
         # Server-side allowlist guard (V2): multiselect returns an unknown
         # client value as-is instead of raising, so we drop anything that

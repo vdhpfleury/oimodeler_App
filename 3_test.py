@@ -30,6 +30,26 @@ import streamlit as st
 # later rerun — the concrete cause of a reported
 # "Adding colorbar to a different Figure" warning and, from the same
 # stale-figure-reference family, Streamlit's MediaFileStorageError.
+#
+# NOTE — "only render the active tab" was tried here and reverted:
+# 1. st.segmented_control + rendering only the selected page: Streamlit
+#    deletes a widget's session_state entry entirely whenever that widget
+#    isn't instantiated on a given rerun (confirmed via isolated repro) —
+#    switching tabs silently wiped every keyed widget's value (selected
+#    files, applied filters, ...) on the pages left un-rendered.
+# 2. st.tabs() + st.fragment per tab (keeps every tab "mounted", so no
+#    state eviction): fixes #1, but st.tabs() itself never triggers a
+#    rerun on switch (pure client-side CSS toggle) — a fragment only
+#    reruns from an interaction inside it, so a page reading state
+#    written by ANOTHER tab's fragment (e.g. Fitting reading a model just
+#    saved on Modelling) can show stale content until the user interacts
+#    with something on that page. Confirmed live: switching straight to
+#    Fitting after saving a model on Modelling still showed "No model
+#    saved" — this app's tabs are too cross-dependent (shared
+#    MODEL/loaded_files/applied_filters) for a naive per-tab fragment.
+# A correct version would need each page's render() split into a cheap
+# "gate" part (always run) and an expensive "compute" part (fragment-
+# scoped) — real surgery across every page, not attempted here.
 plt.close('all')
 
 # ── 1. Configuration de la page (DOIT être le premier appel Streamlit) ────
@@ -68,46 +88,28 @@ from pages.fitting     import render as render_fitting      # noqa: E402
 
 st.image("./images/logo.png")
 
-# Navigation par onglets rendue via st.segmented_control plutôt que
-# st.tabs() : st.tabs() exécute le code Python des 5 onglets à CHAQUE
-# rerun (seul l'affichage DOM des onglets inactifs est masqué côté
-# frontend), ce qui provoquait un recalcul systématique des 5 pages —
-# y compris figures matplotlib et chargements de données — à chaque
-# interaction, même dans un onglet non consulté. Avec
-# segmented_control, st.session_state.active_tab sélectionne l'onglet
-# et seule la fonction render() correspondante est appelée.
-_TAB_LABELS = [
+tab_home, tab_visu, tab_data, tab_model, tab_fit = st.tabs([
     "📋 Overview",
     "🔬 Component Explorer",
     "📂 Data",
     "⚙️ Modelling",
     "📐 Fitting",
-]
-_TAB_RENDERERS = {
-    "📋 Overview":            render_overview,
-    "🔬 Component Explorer":  render_explorer,
-    "📂 Data":                render_data,
-    "⚙️ Modelling":           render_modelling,
-    "📐 Fitting":              render_fitting,
-}
+])
 
-# Pas de `default=` : la clé 'active_tab' est déjà initialisée par
-# init_session_state(), st.segmented_control la lit directement via `key`.
-active_tab = st.segmented_control(
-    "Navigation",
-    options=_TAB_LABELS,
-    label_visibility="collapsed",
-    key="active_tab",
-)
-# segmented_control renvoie None si l'utilisateur déselectionne l'onglet
-# actif (deuxième clic dessus) : on retombe sur "Overview" plutôt que de
-# rendre une page vide, et on resynchronise la session_state pour le
-# prochain rerun.
-if active_tab is None:
-    active_tab = "📋 Overview"
-    st.session_state.active_tab = active_tab
+with tab_home:
+    render_overview()
 
-_TAB_RENDERERS[active_tab]()
+with tab_visu:
+    render_explorer()
+
+with tab_data:
+    render_data()
+
+with tab_model:
+    render_modelling()
+
+with tab_fit:
+    render_fitting()
 
 # ── Footer ────────────────────────────────────────────────────────────────
 st.markdown("---")
