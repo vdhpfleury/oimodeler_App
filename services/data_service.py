@@ -92,117 +92,75 @@ def load_oifits_multi(filepaths: tuple):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 4. Application d'un filtre spectral (résultat mis en cache)
+# 4. Filtres génériques (registre core/filter_registry.py) — session-wide,
+#    partagés par les pages Data / Fitting / Modelling
 # ═══════════════════════════════════════════════════════════════════════════
 
-def build_per_file_filters(
-    file_filters: dict[str, dict], file_dtypes: dict[str, list[str]],
-    file_order: list[str],
-):
+def build_filters_from_specs(applied_filters: list[dict]):
     """
-    Construit, pour chaque fichier sélectionné, ses propres filtres
-    (plage(s) de longueur d'onde, binning spectral, types de données gardés)
-    — chacun ciblé UNIQUEMENT sur son propre index dans file_order via
-    `targets=[idx]`, jamais `targets=idx` (un entier nu) ni `targets="all"` :
-    oimDataFilterComponent.applyFilter() enveloppe un entier nu en
-    `[idx]` de la même façon, donc un `targets=0` appliqué "par erreur"
-    à toute la sélection ne cible en réalité QUE le premier fichier — c'est
-    exactement le bug qui rendait le filtrage global inopérant sur tout
-    fichier après le premier avant ce module.
+    Construit les instances de filtre oimodeler réelles à partir de leurs
+    spécifications sérialisables (voir services/session.py's
+    'applied_filters' : { 'filter_class': str, 'kwargs': dict, ... }).
 
-    Paramètres
-    ----------
-    file_filters : dict
-        { nom_fichier: {'wl_ranges': [(lo_m, hi_m), ...], 'bin': int,
-                         'normalize_err': bool} }, en mètres (unité native
-        oimodeler) — voir pages/data.py pour la construction depuis l'UI (µm).
-        Une entrée absente, ou avec 'wl_ranges' vide et 'bin' <= 1, ne filtre
-        pas ce fichier (no-op).
-    file_dtypes : dict
-        { nom_fichier: [types de données gardés (VIS2DATA, VISAMP, …)] }
-    file_order : list[str]
-        Noms de fichiers dans l'ordre exact utilisé pour construire oimData
-        (déterminant l'index cible des filtres).
+    Ne stocke jamais d'instance de filtre "vivante" dans session_state —
+    seules ces specs (JSON-sérialisables) le sont ; les instances réelles
+    sont reconstruites ici à la demande, cohérent avec la règle du projet
+    de ne jamais garder d'objet oimodeler lourd/non sérialisable en session.
+
+    Toute clé de kwargs dont la valeur est None est omise plutôt que
+    passée telle quelle : la plupart des filtres itèrent sur
+    self.params['arr']/['targets'] sans vérifier None (ils attendent soit
+    "all" soit une liste) — passer explicitement None casserait le filtre
+    au lieu de laisser la classe utiliser son propre défaut ("all").
     """
-    from config.constants import FITTABLE_DATA_TYPES  # noqa: PLC0415
-
     oim = get_oim()
-    all_types = set(FITTABLE_DATA_TYPES)
     filters = []
-    for idx, fname in enumerate(file_order):
-        cfg = file_filters.get(fname, {})
-
-        wl_ranges = cfg.get('wl_ranges') or []
-        if wl_ranges:
-            filters.append(oim.oimWavelengthRangeFilter(
-                targets=[idx], wlRange=[list(r) for r in wl_ranges], method="cut",
-            ))
-
-        bin_size = cfg.get('bin', 1)
-        if bin_size and bin_size > 1:
-            filters.append(oim.oimWavelengthBinningFilter(
-                targets=[idx], bin=bin_size,
-                normalizeError=cfg.get('normalize_err', False),
-            ))
-
-        selected = file_dtypes.get(fname)
-        if selected is not None and set(selected) < all_types:
-            # Pas de filtre créé si tout est sélectionné (no-op) — même
-            # convention que ci-dessus pour les plages/binning.
-            filters.append(oim.oimKeepDataTypeFilter(dataType=list(selected), targets=[idx]))
-
+    for spec in applied_filters:
+        filter_cls = getattr(oim, spec["filter_class"], None)
+        if filter_cls is None:
+            continue  # filtre inconnu de cette version d'oimodeler — ignoré
+        kwargs = {k: v for k, v in spec.get("kwargs", {}).items() if v is not None}
+        filters.append(filter_cls(**kwargs))
     return filters
 
 
 @st.cache_data(ttl=3600, max_entries=50)
-def get_file_summary(filepath: str) -> dict:
+def get_filter_metadata(filepath: str, display_name: str):
     """
-    Résumé lecture-seule (instrument, cible, date, config VLTI, couverture
-    spectrale native) d'un fichier OIFITS — mis en cache par chemin.
+    Table de métadonnées par ligne (cible/array/datatype/baseline/
+    télescopes/plage λ) d'UN fichier OIFITS — alimente les widgets en
+    cascade du sélecteur de filtre générique (Data page).
 
-    cache_data (pas cache_resource) : ne retourne que des types sérialisables
-    (str/float/int/None), lus une fois pour toutes indépendamment de tout
-    filtre appliqué ensuite sur les données.
+    cache_data (pas cache_resource) : ne retourne qu'un DataFrame de
+    types simples, indépendant de tout filtre appliqué ensuite.
     """
-    from core.oifits_meta import read_file_summary  # noqa: PLC0415
-    return read_file_summary(filepath)
+    from core.oifits_meta import extract_filter_metadata  # noqa: PLC0415
+    return extract_filter_metadata(filepath, display_name)
 
 
-@st.cache_data(ttl=600, max_entries=100)
-def get_filtered_wavelengths_for_file(
-    filepath: str, wl_ranges: tuple, bin_size: int, normalize_err: bool,
-) -> list[float]:
+def get_active_data(selected_files: list[str]):
     """
-    Retourne les longueurs d'onde uniques d'UN SEUL fichier après application
-    de son propre filtre (plage(s) + binning) — le contrôle de bonne
-    application affiché sous chaque bloc de filtre par fichier (Data page).
-    Mis en cache par combinaison (filepath, paramètres de filtre).
+    Point d'entrée UNIQUE pour obtenir l'objet oimData actif, filtres
+    appliqués — utilisé identiquement par les pages Data, Fitting et
+    Modelling puisque les filtres sont désormais partagés pour toute la
+    session (st.session_state.applied_filters), plutôt que reconstruits
+    indépendamment par chaque page.
 
-    Un objet oimData single-fichier n'a besoin d'aucun `targets` explicite
-    (il n'y a qu'un seul fichier à l'index 0) — inutile de reproduire ici le
-    ciblage par index utilisé par build_per_file_filters() pour la
-    sélection multi-fichiers réelle.
-
-    Utilise cache_data (sérialisable) car on ne retourne que des floats.
+    Lève ValueError("No file selected.") si `selected_files` est vide,
+    après résolution via l'allowlist loaded_files (V2) — jamais de
+    reconstruction de chemin depuis une valeur de widget.
     """
-    import numpy as np  # noqa: PLC0415
-    oim  = get_oim()
-    data = load_oifits(filepath)
+    from services.storage import resolve_selected_paths  # noqa: PLC0415
 
-    filters = []
-    if wl_ranges:
-        filters.append(oim.oimWavelengthRangeFilter(
-            wlRange=[list(r) for r in wl_ranges], method="cut",
-        ))
-    if bin_size and bin_size > 1:
-        filters.append(oim.oimWavelengthBinningFilter(
-            bin=bin_size, normalizeError=normalize_err,
-        ))
+    paths = resolve_selected_paths(selected_files)
+    if not paths:
+        raise ValueError("No file selected.")
 
-    if filters:
-        data.setFilter(oim.oimDataFilter(filters))
-        data.useFilter = True
-    else:
-        data.useFilter = False
+    data = load_oifits_multi(tuple(paths))
 
-    return list(np.unique(data.vect_wl))
+    oim = get_oim()
+    filters = build_filters_from_specs(st.session_state.get("applied_filters", []))
+    data.setFilter(oim.oimDataFilter(filters))
+    data.useFilter = True
+
+    return data

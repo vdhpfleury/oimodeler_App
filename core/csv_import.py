@@ -10,9 +10,46 @@ import pandas as pd
 from config.constants import DEFAULT_PARAM_RANGES, DEFAULT_PARAM_INIT, SHORT_TO_OIM
 
 
+def _build_shortname_map(registry: dict) -> dict[str, str]:
+    """Mappe le vrai `shortname` oimodeler de chaque classe (celui qui
+    apparaît réellement dans model.getParameters()'s keys, ex. "Bckg" pour
+    oimBackground, "eUD" pour oimEllipse) vers le nom complet de la classe.
+
+    Dérivé du registre (donc de la version d'oimodeler réellement
+    installée) plutôt que codé en dur : SHORT_TO_OIM ne correspondait pas
+    aux vrais shortname pour plusieurs types (ex. "Bg"≠"Bckg") — un CSV/TXT
+    exporté avec le vrai getParameters() ne se réimportait pas pour eux.
+
+    Deux vraies collisions existent dans oimodeler même (deux classes
+    partageant le même shortname) : "IR" pour oimIRing ET oimAEIRing,
+    "SKER" pour oimESKRing ET oimESKGRing — le nom de classe le plus court
+    (donc la variante "de base") gagne, un choix arbitraire mais
+    déterministe. Le vrai type reste préservé pour tout modèle construit
+    dans cette session (session_state.MODEL stocke le nom de classe
+    complet) ; seule une réimportation externe utilisant l'abréviation
+    ambiguë "IR"/"SKER" peut résoudre vers le mauvais des deux.
+    """
+    mapping = {}
+    for full_name, info in sorted(registry.items(), key=lambda kv: len(kv[0])):
+        cls = info.get('class')
+        shortname = getattr(cls, 'shortname', None) if cls else None
+        if shortname and shortname not in mapping:
+            mapping[shortname] = full_name
+    return mapping
+
+
 def _resolve_comp_type(registry: dict, abbreviation: str) -> str | None:
-    """Résout l'abréviation CSV vers le nom complet oimodeler."""
-    if abbreviation in SHORT_TO_OIM:
+    """Résout l'abréviation CSV/TXT vers le nom complet oimodeler.
+
+    Ordre de résolution : (1) vrai shortname oimodeler (cas exact — c'est
+    ce que produit réellement model.getParameters()) ; (2) SHORT_TO_OIM,
+    conservé pour la compatibilité avec d'anciens exports ; (3) un nom de
+    classe du registre se terminant par l'abréviation, en dernier recours.
+    """
+    shortname_map = _build_shortname_map(registry)
+    if abbreviation in shortname_map:
+        return shortname_map[abbreviation]
+    if abbreviation in SHORT_TO_OIM and SHORT_TO_OIM[abbreviation] in registry:
         return SHORT_TO_OIM[abbreviation]
     abbr_lower = abbreviation.lower()
     for full_name in registry:

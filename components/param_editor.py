@@ -5,9 +5,30 @@ Extrait de la logique UI qui était répétée dans l'original.
 """
 from __future__ import annotations
 
+import math
+
 import streamlit as st
 
 from config.constants import DEFAULT_PARAM_RANGES, DEFAULT_PARAM_INIT
+
+# st.number_input raises StreamlitJSNumberBoundsError on a literal
+# -inf/inf value= (its JS-side bounds check rejects them outright) — real
+# oimodeler parameters routinely default to range=[-inf, inf] (e.g. every
+# x/y position), and both CSV and the new TXT model import
+# (core/model_export.py) can bring such a value in directly. ±1e9 mirrors
+# core/csv_import.py's own existing "unbounded" fallback convention —
+# effectively unbounded for any real mas-scale parameter, but finite
+# enough for the widget to accept.
+_INF_CLAMP = 1e9
+
+
+def _clamp_finite(value) -> float:
+    v = float(value)
+    if math.isinf(v):
+        return math.copysign(_INF_CLAMP, v)
+    if math.isnan(v):
+        return 0.0
+    return v
 
 
 def render_param_editor(comp: dict) -> None:
@@ -29,11 +50,11 @@ def render_param_editor(comp: dict) -> None:
 
         with param_cols[i % n_cols]:
             st.markdown(f"**{param}**")
-            st.number_input("init", value=float(cur_init),
+            st.number_input("init", value=_clamp_finite(cur_init),
                             key=f"{comp['name']}_{param}_init", format="%.4g")
-            st.number_input("min",  value=float(cur_lo),
+            st.number_input("min",  value=_clamp_finite(cur_lo),
                             key=f"{comp['name']}_{param}_min",  format="%.4g")
-            st.number_input("max",  value=float(cur_hi),
+            st.number_input("max",  value=_clamp_finite(cur_hi),
                             key=f"{comp['name']}_{param}_max",  format="%.4g")
             st.checkbox("free", value=cur_free,
                         key=f"{comp['name']}_{param}_free")

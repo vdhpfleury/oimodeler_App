@@ -24,10 +24,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from services.data_service import (
-    get_oim, get_registry, load_oifits_multi, build_per_file_filters,
-)
-from services.storage import resolve_selected_paths
+from services.data_service import get_oim, get_registry, get_active_data
+from services.activity_log import log_event, get_log_text
 from config.constants import (
     FITTABLE_DATA_TYPES, MAX_EMCEE_WALKERS, MAX_EMCEE_STEPS,
     MAX_GRID_AXIS_POINTS, MAX_GRID_POINTS,
@@ -41,6 +39,7 @@ from core.model_builder import (
 from core.fitting import random_search
 from core.results import get_result_df, update_model_from_fit, build_results_zip
 from core.code_generator import generate_fitting_code
+from core.model_export import model_to_txt
 from core.validation import num, choice, choices, InvalidInput
 from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pyplot
 
@@ -59,8 +58,12 @@ def render() -> None:
         st.warning("⚠️ No model saved. Configure and save a model (Modelling tab).")
         return
 
-    data = _get_active_data_with_filter()
-    if data is None:
+    try:
+        data = get_active_data(st.session_state.get('selected_files', []))
+    except ValueError:
+        # get_active_data() raises rather than returning None on an empty
+        # selection — this used to be an unguarded call whose "if data is
+        # None" check below could never actually run.
         st.warning("⚠️ No OIFITS data loaded. Go to the Data tab first.")
         return
 
@@ -140,6 +143,10 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
         return
 
     if st.button("🚀 Run random search", type="primary", use_container_width=True):
+        log_event(
+            "Fit run started",
+            f"Random model={model_to_use} n_runs={n_runs} dtypes={','.join(rand_dtypes)}",
+        )
         configs = [
             ComponentConfig(
                 component_type=c['type'], registry=registry, name=c['name'],
@@ -181,9 +188,11 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
             # Stocke l'objet modèle temporairement pour l'affichage
             st.session_state['_random_best_model'] = oim.oimModel(*best_comps)
             st.success("✅ Optimization complete!")
+            log_event("Fit run completed", f"Random best_chi2r={bc:.4f}")
             st.balloons()
         except Exception as exc:
             st.error(f"Error: {exc}")
+            log_event("Fit run failed", f"Random: {exc}")
 
     if not st.session_state.optimization_done:
         return
@@ -203,6 +212,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
                 best_model, chi2r=st.session_state.best_chi2,
             )
             st.success(f"Model **Best_Random_{model_to_use}** saved!")
+            log_event("Best model saved", f"Best_Random_{model_to_use}")
 
     # ── Graphiques d'historique ───────────────────────────────────────
     st.markdown("##### History")
@@ -256,6 +266,10 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         return
 
     if st.button("▶️ Run", type="primary"):
+        log_event(
+            "Fit run started",
+            f"chi2 model={model_to_use} dtypes={','.join(opt_dtypes)}",
+        )
         data.useFilter = True
         try:
             model_init = copy.deepcopy(model_chi2)
@@ -277,8 +291,13 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
                 'model_to_use':    model_to_use,
                 'dtypes':          opt_dtypes,
             }
+            log_event(
+                "Fit run completed",
+                f"chi2 chi2r={chi2_init:.4f}->{lmfit.simulator.chi2r:.4f}",
+            )
         except Exception as exc:
             st.error(f"Minimization error: {exc}")
+            log_event("Fit run failed", f"chi2: {exc}")
 
     if st.session_state.chi2_result is None:
         return
@@ -375,8 +394,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             result={"dtypes": r['dtypes']},
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-            file_filters=st.session_state.get("file_filters", {}),
-            file_dtypes=st.session_state.get("file_dtypes", {}),
+            applied_filters=st.session_state.get("applied_filters", []),
             registry=registry,
         )
         st.code(code, language="python")
@@ -388,6 +406,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             r['best_chi2_model'], chi2r=r['chi2_final'],
         )
         st.success(f"Model **Best_Chi2r_{r['model_to_use']}** saved!")
+        log_event("Best model saved", f"Best_Chi2r_{r['model_to_use']}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -503,6 +522,11 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
     )
 
     if st.button("🧮 Run grid search", type="primary", use_container_width=True):
+        log_event(
+            "Fit run started",
+            f"grid model={model_to_use} dtypes={','.join(grid_dtypes)} "
+            f"axes={[a['name'] for a in axes]} size={total_points}",
+        )
         data.useFilter = True
         try:
             model_init = copy.deepcopy(model_grid)
@@ -532,10 +556,15 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
                 'axes':            axes,
             }
             st.success("✅ Grid search complete!")
+            log_event(
+                "Fit run completed",
+                f"grid chi2r={chi2_init:.4f}->{gfit.simulator.chi2r:.4f}",
+            )
             st.balloons()
         except Exception as exc:
             logger.exception("Grid search failed")
             st.error(f"Grid search error: {exc}")
+            log_event("Fit run failed", f"grid: {exc}")
 
     if st.session_state.grid_result is None:
         return
@@ -576,15 +605,18 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         result={"dtypes": r['dtypes'], "axes": r['axes']},
         data_filenames=st.session_state.get("selected_files", []),
         model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-        file_filters=st.session_state.get("file_filters", {}),
-        file_dtypes=st.session_state.get("file_dtypes", {}),
+        applied_filters=st.session_state.get("applied_filters", []),
         registry=registry,
     )
     zip_bytes = build_results_zip(
         param_table=tbl_grid,
         code=code,
         figures={"chi2_map": fig_map},
-        extra_files={"grid_chi2map.csv": grid_csv},
+        extra_files={
+            "grid_chi2map.csv": grid_csv,
+            "activity_log.txt": get_log_text(),
+            **_all_models_as_txt(registry),
+        },
     )
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(r['model_to_use']))[:100] or "model"
 
@@ -597,6 +629,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
                 r['best_grid_model'], chi2r=r['chi2_final'],
             )
             st.success(f"Model **Best_Grid_{r['model_to_use']}** saved!")
+            log_event("Best model saved", f"Best_Grid_{r['model_to_use']}")
     with col_dl:
         st.download_button(
             "📦 Download results (zip)",
@@ -604,6 +637,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
             file_name=f"grid_results_{safe_model_name}.zip",
             mime="application/zip",
             use_container_width=True,
+            on_click=lambda: log_event("Results zip downloaded", f"grid model={r['model_to_use']}"),
             key="download_grid_zip",
         )
 
@@ -671,6 +705,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         return
 
     if st.button("▶️ Run Emcee", type="primary"):
+        log_event(
+            "Fit run started",
+            f"emcee model={model_to_use} dtypes={','.join(emcee_dtypes)} "
+            f"walkers={nb_walkers} steps={nb_steps} init={init_mode}",
+        )
         data.useFilter = True
         try:
             model_init = copy.deepcopy(model_emcee)
@@ -702,9 +741,14 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 'init':             init_mode,
             }
             st.success("✅ Emcee complete!")
+            log_event(
+                "Fit run completed",
+                f"emcee chi2r={chi2_init:.4f}->{emfit.simulator.chi2r:.4f}",
+            )
             st.balloons()
         except Exception as exc:
             st.error(f"Emcee error: {exc}")
+            log_event("Fit run failed", f"emcee: {exc}")
 
     if st.session_state.emcee_result is None:
         return
@@ -726,6 +770,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             er['best_emcee_model'], chi2r=er['chi2_final'],
         )
         st.success(f"Model **Best_Emcee_{er['model_to_use']}** saved!")
+        log_event("Best model saved", f"Best_Emcee_{er['model_to_use']}")
 
     # ── Code reproductible ────────────────────────────────────────────
     with st.expander("Reproducible Python code", expanded=False):
@@ -739,8 +784,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             },
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
-            file_filters=st.session_state.get("file_filters", {}),
-            file_dtypes=st.session_state.get("file_dtypes", {}),
+            applied_filters=st.session_state.get("applied_filters", []),
             registry=registry,
         )
         st.code(code, language="python")
@@ -899,6 +943,10 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             "walkers_plot":  fw,
             "corner_plot":   fc,
         },
+        extra_files={
+            "activity_log.txt": get_log_text(),
+            **_all_models_as_txt(registry),
+        },
     )
     # model_to_use comes from a selectbox — its widget option list isn't
     # server-enforced, so sanitize before using it in a client-facing filename.
@@ -909,6 +957,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         file_name=f"emcee_results_{safe_model_name}.zip",
         mime="application/zip",
         use_container_width=True,
+        on_click=lambda: log_event("Results zip downloaded", f"emcee model={er['model_to_use']}"),
     )
 
 
@@ -916,67 +965,30 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 # Helpers internes
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _get_active_data_with_filter():
-    """
-    Retourne l'objet oimData actif avec le filtre appliqué — chaque fichier
-    filtré indépendamment des autres (voir pages/data.py et
-    services/data_service.build_per_file_filters()).
-    Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
-
-    Paths are resolved only via resolve_selected_paths(), i.e. only names
-    already present in st.session_state.loaded_files — never by
-    reconstructing a path from a widget value (V2).
-    """
-    paths = resolve_selected_paths(st.session_state.get('selected_files', []))
-
-    if not paths:
-        raise ValueError("No file selected.")
-
-    data = load_oifits_multi(tuple(paths))
-
-    oim          = get_oim()
-    file_order   = st.session_state.get('selected_files', []) or []
-    file_filters = st.session_state.get('file_filters', {})
-    file_dtypes  = st.session_state.get('file_dtypes', {})
-
-    filters = build_per_file_filters(file_filters, file_dtypes, file_order)
-    data.setFilter(oim.oimDataFilter(filters))
-    data.useFilter = True
-
-    return data
-
-
 def _render_dataset_summary() -> None:
-    """Lists the selected datasets, their per-file data types, and the
-    spectral filter/binning currently applied — the same information every
-    fit method below uses, shown once instead of duplicated per method."""
+    """Lists the selected datasets and the filters currently applied —
+    the same information every fit method below uses, shown once instead
+    of duplicated per method. Filters are session-wide (st.session_state.
+    applied_filters, see pages/data.py's filter workbench), not specific
+    to this page."""
     selected = st.session_state.get('selected_files', []) or []
     st.markdown(f"**Datasets** — {len(selected)} selected")
     if not selected:
         st.caption("No dataset selected — go to the Data tab.")
         return
-
-    file_dtypes  = st.session_state.get('file_dtypes', {})
-    file_filters = st.session_state.get('file_filters', {})
     for fname in selected:
-        dtypes = file_dtypes.get(fname)
-        dtypes_txt = ", ".join(dtypes) if dtypes else "all available types"
+        st.markdown(f"- `{fname}`")
 
-        cfg = file_filters.get(fname, {})
-        wl_ranges = cfg.get('wl_ranges') or []
-        filt_bits = []
-        if wl_ranges:
-            ranges_txt = ", ".join(
-                f"[{lo*1e6:.2f}, {hi*1e6:.2f}] µm" for lo, hi in wl_ranges
-            )
-            filt_bits.append(f"λ kept: {ranges_txt}")
-        bin_size = cfg.get('bin', 1)
-        if bin_size and bin_size > 1:
-            norm_txt = ", normalized σ" if cfg.get('normalize_err') else ""
-            filt_bits.append(f"bin={bin_size}{norm_txt}")
-        filt_txt = " · ".join(filt_bits) if filt_bits else "no spectral filter"
-
-        st.markdown(f"- `{fname}` — data types: {dtypes_txt} — {filt_txt}")
+    applied = st.session_state.get('applied_filters', [])
+    if not applied:
+        st.caption("Filters applied: none.")
+        return
+    filt_bits = []
+    for entry in applied:
+        targets = entry["kwargs"].get("targets")
+        targets_txt = "all files" if not targets else f"files {targets}"
+        filt_bits.append(f"{entry['filter_class']} ({targets_txt})")
+    st.caption("Filters applied: " + " · ".join(filt_bits))
 
 
 def _render_model_summary(model_to_use: str) -> None:
@@ -1016,4 +1028,15 @@ def _grid_map_to_csv(gfit, axes: list[dict]) -> str:
         chi2 = repr(float(gfit.chi2rMap[idx]))
         lines.append(",".join(coords + [chi2]))
     return "\n".join(lines)
+
+
+def _all_models_as_txt(registry) -> dict[str, str]:
+    """Every model saved this session, in the normalized .txt format
+    (core/model_export.py) importable back via Modelling > Import model —
+    bundled into every result zip so a download carries the full model
+    library, not just the one model this particular fit used."""
+    return {
+        f"models/{name}.txt": model_to_txt(model_dict, registry)
+        for name, model_dict in st.session_state.MODEL.items()
+    }
 

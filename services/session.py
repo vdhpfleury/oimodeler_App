@@ -37,12 +37,14 @@ _DEFAULTS: dict = {
     'loaded_files':         {},   # str → str  (nom → chemin de session)
     'selected_file':        None, # nom du fichier actif (compat. modelling/fitting)
     'selected_files':       [],   # liste des noms sélectionnés dans l'étape II
-    'file_dtypes':          {},   # str → list[str]  (nom → types de données gardés)
 
-    # Paramètres de filtrage spectral actifs — INDÉPENDANTS par fichier
-    # (voir core/oifits_meta.py + services/data_service.build_per_file_filters).
-    # str → {'wl_ranges': [(lo_m, hi_m), ...], 'bin': int, 'normalize_err': bool}
-    'file_filters':         {},
+    # Filtres oimodeler appliqués — PARTAGÉS par toute la session (Data,
+    # Fitting, Modelling en consomment tous la même pile ; voir
+    # core/filter_registry.py + services/data_service.build_filters_from_specs
+    # et .get_active_data()). Liste sérialisable de specs, jamais
+    # d'instance de filtre "vivante" :
+    # [{'filter_class': str, 'kwargs': dict, 'signature': list}, ...]
+    'applied_filters':      [],
 
     # Résultats d'optimisation (Random search)
     'optimization_done':    False,
@@ -60,6 +62,10 @@ _DEFAULTS: dict = {
 
     # Résultats Grid search (idem)
     'grid_result':          None,
+
+    # Journal d'activité horodaté de la session — jamais affiché à l'écran,
+    # inclus tel quel dans les zip de résultats (services/activity_log.py).
+    'activity_log':         [],
 }
 
 
