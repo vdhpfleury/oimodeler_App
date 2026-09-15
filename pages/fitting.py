@@ -25,7 +25,7 @@ import numpy as np
 import streamlit as st
 
 from services.data_service import (
-    get_oim, get_registry, load_oifits, load_oifits_multi, build_data_type_filters,
+    get_oim, get_registry, load_oifits_multi, build_per_file_filters,
 )
 from services.storage import resolve_selected_paths
 from config.constants import (
@@ -375,7 +375,8 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             result={"dtypes": r['dtypes']},
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-            filter_params=_get_filter_params(),
+            file_filters=st.session_state.get("file_filters", {}),
+            file_dtypes=st.session_state.get("file_dtypes", {}),
             registry=registry,
         )
         st.code(code, language="python")
@@ -575,7 +576,8 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         result={"dtypes": r['dtypes'], "axes": r['axes']},
         data_filenames=st.session_state.get("selected_files", []),
         model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-        filter_params=_get_filter_params(),
+        file_filters=st.session_state.get("file_filters", {}),
+        file_dtypes=st.session_state.get("file_dtypes", {}),
         registry=registry,
     )
     zip_bytes = build_results_zip(
@@ -737,7 +739,8 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             },
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
-            filter_params=_get_filter_params(),
+            file_filters=st.session_state.get("file_filters", {}),
+            file_dtypes=st.session_state.get("file_dtypes", {}),
             registry=registry,
         )
         st.code(code, language="python")
@@ -915,14 +918,15 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 
 def _get_active_data_with_filter():
     """
-    Retourne l'objet oimData actif avec le filtre appliqué.
+    Retourne l'objet oimData actif avec le filtre appliqué — chaque fichier
+    filtré indépendamment des autres (voir pages/data.py et
+    services/data_service.build_per_file_filters()).
     Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
 
     Paths are resolved only via resolve_selected_paths(), i.e. only names
     already present in st.session_state.loaded_files — never by
     reconstructing a path from a widget value (V2).
     """
-    oim   = get_oim()
     paths = resolve_selected_paths(st.session_state.get('selected_files', []))
 
     if not paths:
@@ -930,66 +934,16 @@ def _get_active_data_with_filter():
 
     data = load_oifits_multi(tuple(paths))
 
-    expr  = st.session_state.get('filter_expr', '')
-    bin_L = st.session_state.get('filter_bin_L', 1)
-    bin_N = st.session_state.get('filter_bin_N', 1)
-    norm_L = st.session_state.get('filter_norm_L', False)
-    norm_N = st.session_state.get('filter_norm_N', False)
+    oim          = get_oim()
+    file_order   = st.session_state.get('selected_files', []) or []
+    file_filters = st.session_state.get('file_filters', {})
+    file_dtypes  = st.session_state.get('file_dtypes', {})
 
-    file_order = st.session_state.get('selected_files', []) or []
-    file_dtypes = st.session_state.get('file_dtypes', {})
-
-    filters = build_data_type_filters(file_dtypes, file_order)
-    if expr:
-        filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False))
-    filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))
-    filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N))
+    filters = build_per_file_filters(file_filters, file_dtypes, file_order)
     data.setFilter(oim.oimDataFilter(filters))
     data.useFilter = True
 
     return data
-
-def _get_active_data():
-    """Retourne l'objet oimData actif avec filtre, ou None si indisponible."""
-    oim      = get_oim()
-    filepath = st.session_state.loaded_files.get(
-        st.session_state.get('selected_file')
-    )
-    if not filepath:
-        return None
-    try:
-        data   = load_oifits(filepath)
-        expr   = st.session_state.get('filter_expr', '')
-        bin_L  = st.session_state.get('filter_bin_L', 1)
-        bin_N  = st.session_state.get('filter_bin_N', 1)
-        norm_L = st.session_state.get('filter_norm_L', False)
-        norm_N = st.session_state.get('filter_norm_N', False)
-
-        filters = []
-        if expr:
-            filters.append(
-                oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False)
-            )
-        filters.append(
-            oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L)
-        )
-        filters.append(
-            oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N)
-        )
-        data.setFilter(oim.oimDataFilter(filters))
-        data.useFilter = True
-        return data
-    except Exception:
-        return None
-
-def _get_filter_params() -> dict:
-    return {
-        "expr":   st.session_state.get("filter_expr", ""),
-        "bin_L":  st.session_state.get("filter_bin_L", 1),
-        "bin_N":  st.session_state.get("filter_bin_N", 1),
-        "norm_L": st.session_state.get("filter_norm_L", False),
-        "norm_N": st.session_state.get("filter_norm_N", False),
-    }
 
 
 def _render_dataset_summary() -> None:
@@ -1002,21 +956,27 @@ def _render_dataset_summary() -> None:
         st.caption("No dataset selected — go to the Data tab.")
         return
 
-    file_dtypes = st.session_state.get('file_dtypes', {})
+    file_dtypes  = st.session_state.get('file_dtypes', {})
+    file_filters = st.session_state.get('file_filters', {})
     for fname in selected:
         dtypes = file_dtypes.get(fname)
         dtypes_txt = ", ".join(dtypes) if dtypes else "all available types"
-        st.markdown(f"- `{fname}` — data types: {dtypes_txt}")
 
-    fp = _get_filter_params()
-    filt_bits = []
-    if fp["expr"]:
-        filt_bits.append(f"wavelength filter: `{fp['expr']}`")
-    filt_bits.append(f"binning L={fp['bin_L']}, N={fp['bin_N']}")
-    norm_bits = [b for b, on in (("L", fp["norm_L"]), ("N", fp["norm_N"])) if on]
-    if norm_bits:
-        filt_bits.append(f"σ normalized: {', '.join(norm_bits)}")
-    st.caption("Filters applied: " + " · ".join(filt_bits))
+        cfg = file_filters.get(fname, {})
+        wl_ranges = cfg.get('wl_ranges') or []
+        filt_bits = []
+        if wl_ranges:
+            ranges_txt = ", ".join(
+                f"[{lo*1e6:.2f}, {hi*1e6:.2f}] µm" for lo, hi in wl_ranges
+            )
+            filt_bits.append(f"λ kept: {ranges_txt}")
+        bin_size = cfg.get('bin', 1)
+        if bin_size and bin_size > 1:
+            norm_txt = ", normalized σ" if cfg.get('normalize_err') else ""
+            filt_bits.append(f"bin={bin_size}{norm_txt}")
+        filt_txt = " · ".join(filt_bits) if filt_bits else "no spectral filter"
+
+        st.markdown(f"- `{fname}` — data types: {dtypes_txt} — {filt_txt}")
 
 
 def _render_model_summary(model_to_use: str) -> None:

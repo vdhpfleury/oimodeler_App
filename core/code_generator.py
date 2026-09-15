@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from config.constants import DEFAULT_PARAM_RANGES
+from config.constants import DEFAULT_PARAM_RANGES, FITTABLE_DATA_TYPES
 
 import locale
 from datetime import datetime
@@ -18,20 +18,26 @@ def date():
 
 
 def generate_fitting_code(method: str, result: dict, data_filenames: list,
-                           model_comps: list, filter_params: dict,
-                           registry: dict) -> str:
+                           model_comps: list, file_filters: dict,
+                           file_dtypes: dict, registry: dict) -> str:
     """
     Génère un script Python autonome reproduisant le fitting.
 
     Paramètres
     ----------
-    method         : "chi2" ou "emcee"
+    method         : "chi2", "grid" ou "emcee"
     result         : dict contenant dtypes, nwalkers, nsteps, init (emcee)
-    data_filenames : liste des noms de fichiers OIFITS utilisés pour le fit
+    data_filenames : liste des noms de fichiers OIFITS utilisés pour le fit,
+                      dans l'ordre exact utilisé pour construire oimData
                       (caller passes e.g. st.session_state.selected_files –
                       no Streamlit dependency here, core/ stays pure).
     model_comps    : liste de dicts de composants
-    filter_params  : dict avec expr, bin_L, bin_N, norm_L, norm_N
+    file_filters   : dict { nom_fichier: {'wl_ranges': [(lo_m, hi_m), ...],
+                      'bin': int, 'normalize_err': bool} } — indépendant par
+                      fichier, voir services/data_service.build_per_file_filters
+                      (même contrat, ce module génère juste le code source
+                      équivalent au lieu de l'exécuter).
+    file_dtypes    : dict { nom_fichier: [types de données gardés] }
     registry       : COMPONENT_REGISTRY
     """
 
@@ -71,25 +77,61 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
         "",
     ]
 
-    # ── Filtre spectral ───────────────────────────────────────────────
-    lines += ["# ── 2. Spectral filtering ──────────────────────────────"]
-    expr   = filter_params.get("expr", "")
-    bin_L  = filter_params.get("bin_L", 1)
-    bin_N  = filter_params.get("bin_N", 1)
-    norm_L = filter_params.get("norm_L", False)
-    norm_N = filter_params.get("norm_N", False)
+    # ── Filtre spectral — INDÉPENDANT par fichier ──────────────────────
+    # Each filter object is targeted at exactly one file's index via
+    # targets=[i] (a list) — never targets=i (a bare int): oimodeler's
+    # oimDataFilterComponent.applyFilter() wraps a bare int in a
+    # single-element list too, so targets=0 on a multi-file oimData
+    # silently applies ONLY to the first file. See
+    # services/data_service.build_per_file_filters for the same contract
+    # applied live instead of generated here.
+    lines += ["# ── 2. Per-file spectral filtering ─────────────────────"]
+    all_types = set(FITTABLE_DATA_TYPES)
+    filter_var_names = []
+    any_filter = False
 
-    if expr:
-        lines.append(f'f_wl = oim.oimFlagWithExpressionFilter(expr="{expr}", keepOldFlag=False)')
-    lines += [
-        f"f_bL = oim.oimWavelengthBinningFilter(targets=0, bin={bin_L}, normalizeError={norm_L})",
-        f"f_bN = oim.oimWavelengthBinningFilter(targets=0, bin={bin_N}, normalizeError={norm_N})",
-    ]
-    if expr:
-        lines.append("data.setFilter(oim.oimDataFilter([f_wl, f_bL, f_bN]))")
-    else:
-        lines.append("data.setFilter(oim.oimDataFilter([f_bL, f_bN]))")
-    lines += ["data.useFilter = True", ""]
+    for i, fname in enumerate(data_filenames):
+        cfg = file_filters.get(fname, {})
+        wl_ranges = cfg.get("wl_ranges") or []
+        bin_size  = cfg.get("bin", 1)
+        norm_err  = cfg.get("normalize_err", False)
+        dtypes    = file_dtypes.get(fname)
+
+        file_has_filter = False
+        if wl_ranges:
+            vname = f"f_wl{i+1}"
+            ranges_repr = [list(r) for r in wl_ranges]
+            lines.append(
+                f"{vname} = oim.oimWavelengthRangeFilter(targets=[{i}], "
+                f"wlRange={ranges_repr!r}, method='cut')"
+            )
+            filter_var_names.append(vname)
+            file_has_filter = True
+        if bin_size and bin_size > 1:
+            vname = f"f_bin{i+1}"
+            lines.append(
+                f"{vname} = oim.oimWavelengthBinningFilter(targets=[{i}], "
+                f"bin={bin_size}, normalizeError={norm_err!r})"
+            )
+            filter_var_names.append(vname)
+            file_has_filter = True
+        if dtypes is not None and set(dtypes) < all_types:
+            vname = f"f_dt{i+1}"
+            lines.append(
+                f"{vname} = oim.oimKeepDataTypeFilter(targets=[{i}], dataType={list(dtypes)!r})"
+            )
+            filter_var_names.append(vname)
+            file_has_filter = True
+
+        if file_has_filter:
+            any_filter = True
+        else:
+            lines.append(f"# {fname}: no filter applied (kept as-is)")
+
+    if any_filter:
+        lines.append(f"data.setFilter(oim.oimDataFilter([{', '.join(filter_var_names)}]))")
+        lines.append("data.useFilter = True")
+    lines.append("")
 
     # ── Construction du modèle ────────────────────────────────────────
     lines += ["# ── 3. Build model ─────────────────────────────────────"]

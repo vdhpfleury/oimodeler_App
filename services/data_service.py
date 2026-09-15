@@ -95,19 +95,31 @@ def load_oifits_multi(filepaths: tuple):
 # 4. Application d'un filtre spectral (résultat mis en cache)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def build_data_type_filters(file_dtypes: dict[str, list[str]], file_order: list[str]):
+def build_per_file_filters(
+    file_filters: dict[str, dict], file_dtypes: dict[str, list[str]],
+    file_order: list[str],
+):
     """
-    Construit les filtres oimKeepDataTypeFilter par fichier (ciblés par index
-    dans file_order, qui doit être le même ordre que celui utilisé pour
-    construire l'objet oimData multi-fichiers).
-
-    Un fichier absent de file_dtypes, ou dont tous les types disponibles
-    sont sélectionnés, n'est pas filtré (aucun objet créé pour lui).
+    Construit, pour chaque fichier sélectionné, ses propres filtres
+    (plage(s) de longueur d'onde, binning spectral, types de données gardés)
+    — chacun ciblé UNIQUEMENT sur son propre index dans file_order via
+    `targets=[idx]`, jamais `targets=idx` (un entier nu) ni `targets="all"` :
+    oimDataFilterComponent.applyFilter() enveloppe un entier nu en
+    `[idx]` de la même façon, donc un `targets=0` appliqué "par erreur"
+    à toute la sélection ne cible en réalité QUE le premier fichier — c'est
+    exactement le bug qui rendait le filtrage global inopérant sur tout
+    fichier après le premier avant ce module.
 
     Paramètres
     ----------
+    file_filters : dict
+        { nom_fichier: {'wl_ranges': [(lo_m, hi_m), ...], 'bin': int,
+                         'normalize_err': bool} }, en mètres (unité native
+        oimodeler) — voir pages/data.py pour la construction depuis l'UI (µm).
+        Une entrée absente, ou avec 'wl_ranges' vide et 'bin' <= 1, ne filtre
+        pas ce fichier (no-op).
     file_dtypes : dict
-        { nom_fichier: [types de données sélectionnés (VIS2DATA, VISAMP, …)] }
+        { nom_fichier: [types de données gardés (VIS2DATA, VISAMP, …)] }
     file_order : list[str]
         Noms de fichiers dans l'ordre exact utilisé pour construire oimData
         (déterminant l'index cible des filtres).
@@ -118,18 +130,58 @@ def build_data_type_filters(file_dtypes: dict[str, list[str]], file_order: list[
     all_types = set(FITTABLE_DATA_TYPES)
     filters = []
     for idx, fname in enumerate(file_order):
+        cfg = file_filters.get(fname, {})
+
+        wl_ranges = cfg.get('wl_ranges') or []
+        if wl_ranges:
+            filters.append(oim.oimWavelengthRangeFilter(
+                targets=[idx], wlRange=[list(r) for r in wl_ranges], method="cut",
+            ))
+
+        bin_size = cfg.get('bin', 1)
+        if bin_size and bin_size > 1:
+            filters.append(oim.oimWavelengthBinningFilter(
+                targets=[idx], bin=bin_size,
+                normalizeError=cfg.get('normalize_err', False),
+            ))
+
         selected = file_dtypes.get(fname)
-        if selected is None or set(selected) >= all_types:
-            continue  # pas de sélection explicite, ou tout est sélectionné : no-op
-        filters.append(oim.oimKeepDataTypeFilter(dataType=list(selected), targets=[idx]))
+        if selected is not None and set(selected) < all_types:
+            # Pas de filtre créé si tout est sélectionné (no-op) — même
+            # convention que ci-dessus pour les plages/binning.
+            filters.append(oim.oimKeepDataTypeFilter(dataType=list(selected), targets=[idx]))
+
     return filters
 
 
-@st.cache_data(ttl=600, max_entries=50)
-def get_filtered_wavelengths(filepath: str, expr: str, bin_L: int, bin_N: int) -> list[float]:
+@st.cache_data(ttl=3600, max_entries=50)
+def get_file_summary(filepath: str) -> dict:
     """
-    Retourne les longueurs d'onde uniques après filtrage.
+    Résumé lecture-seule (instrument, cible, date, config VLTI, couverture
+    spectrale native) d'un fichier OIFITS — mis en cache par chemin.
+
+    cache_data (pas cache_resource) : ne retourne que des types sérialisables
+    (str/float/int/None), lus une fois pour toutes indépendamment de tout
+    filtre appliqué ensuite sur les données.
+    """
+    from core.oifits_meta import read_file_summary  # noqa: PLC0415
+    return read_file_summary(filepath)
+
+
+@st.cache_data(ttl=600, max_entries=100)
+def get_filtered_wavelengths_for_file(
+    filepath: str, wl_ranges: tuple, bin_size: int, normalize_err: bool,
+) -> list[float]:
+    """
+    Retourne les longueurs d'onde uniques d'UN SEUL fichier après application
+    de son propre filtre (plage(s) + binning) — le contrôle de bonne
+    application affiché sous chaque bloc de filtre par fichier (Data page).
     Mis en cache par combinaison (filepath, paramètres de filtre).
+
+    Un objet oimData single-fichier n'a besoin d'aucun `targets` explicite
+    (il n'y a qu'un seul fichier à l'index 0) — inutile de reproduire ici le
+    ciblage par index utilisé par build_per_file_filters() pour la
+    sélection multi-fichiers réelle.
 
     Utilise cache_data (sérialisable) car on ne retourne que des floats.
     """
@@ -138,14 +190,19 @@ def get_filtered_wavelengths(filepath: str, expr: str, bin_L: int, bin_N: int) -
     data = load_oifits(filepath)
 
     filters = []
-    if expr:
-        filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False))
-    if bin_L > 1:
-        filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=False))
-    if bin_N > 1:
-        filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=False))
+    if wl_ranges:
+        filters.append(oim.oimWavelengthRangeFilter(
+            wlRange=[list(r) for r in wl_ranges], method="cut",
+        ))
+    if bin_size and bin_size > 1:
+        filters.append(oim.oimWavelengthBinningFilter(
+            bin=bin_size, normalizeError=normalize_err,
+        ))
 
     if filters:
         data.setFilter(oim.oimDataFilter(filters))
+        data.useFilter = True
+    else:
+        data.useFilter = False
 
     return list(np.unique(data.vect_wl))

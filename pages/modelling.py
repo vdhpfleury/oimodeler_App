@@ -28,7 +28,7 @@ import numpy as np
 import streamlit as st
 
 from services.data_service import (
-    get_oim, get_registry, load_oifits, load_oifits_multi, build_data_type_filters,
+    get_oim, get_registry, load_oifits_multi, build_per_file_filters,
 )
 from services.storage import resolve_selected_paths
 from core.component import make_comp_dict, get_comp_by_name
@@ -790,14 +790,15 @@ def _render_model_management() -> None:
 
 def _get_active_data_with_filter():
     """
-    Retourne l'objet oimData actif avec le filtre appliqué.
+    Retourne l'objet oimData actif avec le filtre appliqué — chaque fichier
+    filtré indépendamment des autres (voir pages/data.py et
+    services/data_service.build_per_file_filters()).
     Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
 
     Paths are resolved only via resolve_selected_paths(), i.e. only names
     already present in st.session_state.loaded_files — never by
     reconstructing a path from a widget value (V2).
     """
-    oim   = get_oim()
     paths = resolve_selected_paths(st.session_state.get('selected_files', []))
 
     if not paths:
@@ -805,59 +806,13 @@ def _get_active_data_with_filter():
 
     data = load_oifits_multi(tuple(paths))
 
-    expr  = st.session_state.get('filter_expr', '')
-    bin_L = st.session_state.get('filter_bin_L', 1)
-    bin_N = st.session_state.get('filter_bin_N', 1)
-    norm_L = st.session_state.get('filter_norm_L', False)
-    norm_N = st.session_state.get('filter_norm_N', False)
+    oim          = get_oim()
+    file_order   = st.session_state.get('selected_files', []) or []
+    file_filters = st.session_state.get('file_filters', {})
+    file_dtypes  = st.session_state.get('file_dtypes', {})
 
-    file_order = st.session_state.get('selected_files', []) or []
-    file_dtypes = st.session_state.get('file_dtypes', {})
-
-    filters = build_data_type_filters(file_dtypes, file_order)
-    if expr:
-        filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False))
-    filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))
-    filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N))
+    filters = build_per_file_filters(file_filters, file_dtypes, file_order)
     data.setFilter(oim.oimDataFilter(filters))
     data.useFilter = True
 
     return data
-
-
-def _get_active_data():
-    """
-    Retourne l'objet oimData actif avec filtre appliqué, ou None si indisponible.
-    Réutilise le cache load_oifits() — pas de rechargement disque.
-    """
-    oim      = get_oim()
-    filepath = st.session_state.loaded_files.get(
-        st.session_state.get('selected_file')
-    )
-    if not filepath:
-        return None
-
-    try:
-        data   = load_oifits(filepath)
-        expr   = st.session_state.get('filter_expr', '')
-        bin_L  = st.session_state.get('filter_bin_L', 1)
-        bin_N  = st.session_state.get('filter_bin_N', 1)
-        norm_L = st.session_state.get('filter_norm_L', False)
-        norm_N = st.session_state.get('filter_norm_N', False)
-
-        filters = []
-        if expr:
-            filters.append(
-                oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=False)
-            )
-        filters.append(
-            oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L)
-        )
-        filters.append(
-            oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N)
-        )
-        data.setFilter(oim.oimDataFilter(filters))
-        data.useFilter = True
-        return data
-    except Exception:
-        return None
