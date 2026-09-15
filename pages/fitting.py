@@ -28,6 +28,7 @@ from services.data_service import (
     get_oim, get_registry, load_oifits_multi, build_per_file_filters,
 )
 from services.storage import resolve_selected_paths
+from services.activity_log import log_event, get_log_text
 from config.constants import (
     FITTABLE_DATA_TYPES, MAX_EMCEE_WALKERS, MAX_EMCEE_STEPS,
     MAX_GRID_AXIS_POINTS, MAX_GRID_POINTS,
@@ -140,6 +141,10 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
         return
 
     if st.button("🚀 Run random search", type="primary", use_container_width=True):
+        log_event(
+            "Fit run started",
+            f"Random model={model_to_use} n_runs={n_runs} dtypes={','.join(rand_dtypes)}",
+        )
         configs = [
             ComponentConfig(
                 component_type=c['type'], registry=registry, name=c['name'],
@@ -181,9 +186,11 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
             # Stocke l'objet modèle temporairement pour l'affichage
             st.session_state['_random_best_model'] = oim.oimModel(*best_comps)
             st.success("✅ Optimization complete!")
+            log_event("Fit run completed", f"Random best_chi2r={bc:.4f}")
             st.balloons()
         except Exception as exc:
             st.error(f"Error: {exc}")
+            log_event("Fit run failed", f"Random: {exc}")
 
     if not st.session_state.optimization_done:
         return
@@ -203,6 +210,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
                 best_model, chi2r=st.session_state.best_chi2,
             )
             st.success(f"Model **Best_Random_{model_to_use}** saved!")
+            log_event("Best model saved", f"Best_Random_{model_to_use}")
 
     # ── Graphiques d'historique ───────────────────────────────────────
     st.markdown("##### History")
@@ -256,6 +264,10 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         return
 
     if st.button("▶️ Run", type="primary"):
+        log_event(
+            "Fit run started",
+            f"chi2 model={model_to_use} dtypes={','.join(opt_dtypes)}",
+        )
         data.useFilter = True
         try:
             model_init = copy.deepcopy(model_chi2)
@@ -277,8 +289,13 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
                 'model_to_use':    model_to_use,
                 'dtypes':          opt_dtypes,
             }
+            log_event(
+                "Fit run completed",
+                f"chi2 chi2r={chi2_init:.4f}->{lmfit.simulator.chi2r:.4f}",
+            )
         except Exception as exc:
             st.error(f"Minimization error: {exc}")
+            log_event("Fit run failed", f"chi2: {exc}")
 
     if st.session_state.chi2_result is None:
         return
@@ -388,6 +405,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             r['best_chi2_model'], chi2r=r['chi2_final'],
         )
         st.success(f"Model **Best_Chi2r_{r['model_to_use']}** saved!")
+        log_event("Best model saved", f"Best_Chi2r_{r['model_to_use']}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -503,6 +521,11 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
     )
 
     if st.button("🧮 Run grid search", type="primary", use_container_width=True):
+        log_event(
+            "Fit run started",
+            f"grid model={model_to_use} dtypes={','.join(grid_dtypes)} "
+            f"axes={[a['name'] for a in axes]} size={total_points}",
+        )
         data.useFilter = True
         try:
             model_init = copy.deepcopy(model_grid)
@@ -532,10 +555,15 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
                 'axes':            axes,
             }
             st.success("✅ Grid search complete!")
+            log_event(
+                "Fit run completed",
+                f"grid chi2r={chi2_init:.4f}->{gfit.simulator.chi2r:.4f}",
+            )
             st.balloons()
         except Exception as exc:
             logger.exception("Grid search failed")
             st.error(f"Grid search error: {exc}")
+            log_event("Fit run failed", f"grid: {exc}")
 
     if st.session_state.grid_result is None:
         return
@@ -584,7 +612,10 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         param_table=tbl_grid,
         code=code,
         figures={"chi2_map": fig_map},
-        extra_files={"grid_chi2map.csv": grid_csv},
+        extra_files={
+            "grid_chi2map.csv": grid_csv,
+            "activity_log.txt": get_log_text(),
+        },
     )
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(r['model_to_use']))[:100] or "model"
 
@@ -597,6 +628,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
                 r['best_grid_model'], chi2r=r['chi2_final'],
             )
             st.success(f"Model **Best_Grid_{r['model_to_use']}** saved!")
+            log_event("Best model saved", f"Best_Grid_{r['model_to_use']}")
     with col_dl:
         st.download_button(
             "📦 Download results (zip)",
@@ -604,6 +636,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
             file_name=f"grid_results_{safe_model_name}.zip",
             mime="application/zip",
             use_container_width=True,
+            on_click=lambda: log_event("Results zip downloaded", f"grid model={r['model_to_use']}"),
             key="download_grid_zip",
         )
 
@@ -671,6 +704,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         return
 
     if st.button("▶️ Run Emcee", type="primary"):
+        log_event(
+            "Fit run started",
+            f"emcee model={model_to_use} dtypes={','.join(emcee_dtypes)} "
+            f"walkers={nb_walkers} steps={nb_steps} init={init_mode}",
+        )
         data.useFilter = True
         try:
             model_init = copy.deepcopy(model_emcee)
@@ -702,9 +740,14 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 'init':             init_mode,
             }
             st.success("✅ Emcee complete!")
+            log_event(
+                "Fit run completed",
+                f"emcee chi2r={chi2_init:.4f}->{emfit.simulator.chi2r:.4f}",
+            )
             st.balloons()
         except Exception as exc:
             st.error(f"Emcee error: {exc}")
+            log_event("Fit run failed", f"emcee: {exc}")
 
     if st.session_state.emcee_result is None:
         return
@@ -726,6 +769,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             er['best_emcee_model'], chi2r=er['chi2_final'],
         )
         st.success(f"Model **Best_Emcee_{er['model_to_use']}** saved!")
+        log_event("Best model saved", f"Best_Emcee_{er['model_to_use']}")
 
     # ── Code reproductible ────────────────────────────────────────────
     with st.expander("Reproducible Python code", expanded=False):
@@ -899,6 +943,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             "walkers_plot":  fw,
             "corner_plot":   fc,
         },
+        extra_files={"activity_log.txt": get_log_text()},
     )
     # model_to_use comes from a selectbox — its widget option list isn't
     # server-enforced, so sanitize before using it in a client-facing filename.
@@ -909,6 +954,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         file_name=f"emcee_results_{safe_model_name}.zip",
         mime="application/zip",
         use_container_width=True,
+        on_click=lambda: log_event("Results zip downloaded", f"emcee model={er['model_to_use']}"),
     )
 
 

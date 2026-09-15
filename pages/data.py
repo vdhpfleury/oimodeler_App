@@ -29,6 +29,7 @@ from services.data_service import (
     load_oifits_multi, build_per_file_filters,
 )
 from services.storage import store, resolve_selected_paths
+from services.activity_log import log_event
 from core.validation import num, choice, choices, InvalidInput
 from components.plots import safe_pyplot
 from config.constants import FITTABLE_DATA_TYPES
@@ -69,10 +70,12 @@ def _render_file_upload() -> None:
                 #    pas l'objet oimData
                 st.session_state.loaded_files[f.name] = str(path)
                 st.success(f"✓ {f.name} loaded")
+                log_event("File uploaded", f.name)
             except ValueError as exc:
                 # Rejection reason is already a safe, user-facing message
                 # (bad name/extension, wrong content, quota exceeded).
                 st.error(str(exc))
+                log_event("File upload rejected", f"{f.name}: {exc}")
             except OSError:
                 # Distinct from a validation rejection: the server itself
                 # couldn't write the upload (e.g. its storage directory is
@@ -83,9 +86,11 @@ def _render_file_upload() -> None:
                     f"Could not save {f.name}: the server's upload storage "
                     "is unavailable. Contact the administrator."
                 )
+                log_event("File upload failed", f"{f.name}: storage unavailable")
             except Exception:
                 logger.exception("Upload failed for %s", f.name)
                 st.error(f"Could not load {f.name}. Please try again.")
+                log_event("File upload failed", f.name)
 
 
 # ── Section 2 : Filtrage spectral ─────────────────────────────────────────
@@ -100,6 +105,9 @@ def _render_filter_section() -> None:
         # client value as-is instead of raising, so we drop anything that
         # isn't actually a key of loaded_files rather than trusting it.
         selected = [n for n in raw_selected if n in st.session_state.loaded_files]
+        if selected != st.session_state.get('_last_logged_selection'):
+            log_event("Dataset selection changed", ", ".join(selected) or "(none)")
+            st.session_state['_last_logged_selection'] = list(selected)
         st.session_state.selected_files = selected
 
         try:
@@ -268,11 +276,24 @@ def _render_one_file_filter(fname: str, summary: dict, all_selected: list[str],
             bin_size = num(bin_raw, 1, 50, "Spectral binning", integer=True)
             dtypes   = choices(dtypes_raw, FITTABLE_DATA_TYPES, "Data types")
 
-            st.session_state.file_filters[fname] = {
+            new_cfg = {
                 "wl_ranges":     wl_ranges_m,
                 "bin":           bin_size,
                 "normalize_err": bool(norm_err),
             }
+            # Only log when the effective filter actually changed — this
+            # function reruns on every Streamlit interaction anywhere on
+            # the page, not just when this file's own widgets move.
+            if (st.session_state.file_filters.get(fname) != new_cfg
+                    or st.session_state.file_dtypes.get(fname) != dtypes):
+                ranges_txt = ", ".join(
+                    f"[{lo*1e6:.2f}, {hi*1e6:.2f}]µm" for lo, hi in wl_ranges_m
+                ) or "full range"
+                log_event(
+                    "Filter updated", f"{fname}: λ={ranges_txt}, bin={bin_size}, "
+                    f"norm_err={bool(norm_err)}, dtypes={','.join(dtypes) or 'all'}",
+                )
+            st.session_state.file_filters[fname] = new_cfg
             st.session_state.file_dtypes[fname] = dtypes
 
             filepath = st.session_state.loaded_files[fname]

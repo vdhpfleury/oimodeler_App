@@ -60,6 +60,10 @@ _DEFAULTS: dict = {
 
     # Résultats Grid search (idem)
     'grid_result':          None,
+
+    # Journal d'activité horodaté de la session — jamais affiché à l'écran,
+    # inclus tel quel dans les zip de résultats (services/activity_log.py).
+    'activity_log':         [],
 }
 
 

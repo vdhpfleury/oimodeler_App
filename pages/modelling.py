@@ -31,6 +31,7 @@ from services.data_service import (
     get_oim, get_registry, load_oifits_multi, build_per_file_filters,
 )
 from services.storage import resolve_selected_paths
+from services.activity_log import log_event
 from core.component import make_comp_dict, get_comp_by_name
 from core.model_builder import (
     build_oim_model,
@@ -164,6 +165,7 @@ def _render_basic_model() -> None:
                     make_comp_dict(comp_type_sel, final, registry)
                 )
                 st.session_state.active_comp_name = final
+                log_event("Component added", f"{final} ({comp_type_sel})")
                 st.rerun()
 
         img_graph = st.toggle(
@@ -282,6 +284,7 @@ def _render_basic_model() -> None:
                 st.session_state.active_comp_name = (
                     remaining[0] if remaining else None
                 )
+                log_event("Component removed", active_name)
                 st.rerun()
 
     comp_edit = (
@@ -314,6 +317,7 @@ def _render_basic_model() -> None:
             ]
         }
         st.success(f"✅ Model « {mname} » saved!")
+        log_event("Model saved", f"{mname} ({len(st.session_state.components)} components)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -371,6 +375,7 @@ def _render_csv_import() -> None:
                     f"✅ Model **{target_name}** successfully imported "
                     f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
                 )
+                log_event("Model imported from CSV", f"{target_name} ({n_comp} components)")
                 st.rerun()
     except Exception as exc:
         st.error(f"Cannot read CSV: {exc}")
@@ -498,6 +503,11 @@ def _render_interpolators() -> None:
                     f"**{interp_comp_name}.{interp_param}** "
                     f"(T={bb_temp:.0f} K, d={bb_dist:.0f} pc, L={bb_lum:.2f} L☉)"
                 )
+                log_event(
+                    "Interpolator applied",
+                    f"{interp_comp_name}.{interp_param} blackbody "
+                    f"T={bb_temp:.0f}K d={bb_dist:.0f}pc L={bb_lum:.2f}Lsun",
+                )
                 st.rerun()  # ← FIX 1 : force le rafraîchissement des interpolateurs actifs
 
         # ── Custom spline ──────────────────────────────────────────────────
@@ -581,6 +591,11 @@ def _render_interpolators() -> None:
                     f"**{interp_comp_name}.{interp_param}** "
                     f"({int(n_pts)} points, var={interp_var})"
                 )
+                log_event(
+                    "Interpolator applied",
+                    f"{interp_comp_name}.{interp_param} custom "
+                    f"({int(n_pts)} points, var={interp_var})",
+                )
                 st.rerun()  # ← FIX 1 (bis) : même correction pour le custom
 
 
@@ -603,6 +618,7 @@ def _render_interpolators() -> None:
         target = new_interp_name.strip() or f"{interp_model_name}_interp"
         st.session_state.MODEL[target] = saved
         st.success(f"✅ Model **{target}** saved with interpolators!")
+        log_event("Model saved", f"{target} (with interpolators)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -767,6 +783,7 @@ def _render_model_management() -> None:
                         st.session_state.MODEL.pop(model_tbr)
                     )
                     st.success(f"Model **{model_tbr}** renamed to **{new_name}**")
+                    log_event("Model renamed", f"{model_tbr} -> {new_name}")
                 else:
                     st.warning("Please enter a name.")
 
@@ -781,6 +798,7 @@ def _render_model_management() -> None:
             else:
                 st.session_state.MODEL.pop(model_tbs)
                 st.success(f"Model **{model_tbs}** successfully deleted.")
+                log_event("Model deleted", model_tbs)
                 st.rerun()
 
 
