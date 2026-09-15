@@ -892,7 +892,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                     extent=[extent_half, -extent_half, -extent_half, extent_half],
                     vmin=vmin, vmax=vmax,
                 )
-                plt.colorbar(im_plot, ax=ax_img, label=f'Intensity (γ={img_gamma})')
+                # fig_img.colorbar (not plt.colorbar): see the same fix's
+                # comment in pages/explorer.py — plt.colorbar() attaches to
+                # pyplot's global "current figure", which drifts once
+                # several tabs/figures are built in the same rerun.
+                fig_img.colorbar(im_plot, ax=ax_img, label=f'Intensity (γ={img_gamma})')
                 ax_img.set_xlabel("ΔRA (mas)"); ax_img.set_ylabel("ΔDec (mas)")
                 wl_label = f" @ {wl_val*1e6:.2f} µm" if wl_val else ""
                 ax_img.set_title(f"Model{wl_label}")

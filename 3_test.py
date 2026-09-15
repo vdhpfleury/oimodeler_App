@@ -18,7 +18,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 
+import matplotlib.pyplot as plt
 import streamlit as st
+
+# Resets pyplot's global figure registry at the start of every rerun —
+# st.tabs() executes ALL tabs' render() every rerun (only the DOM display
+# of inactive tabs is hidden, their Python code still runs), so a figure
+# left open by one page (e.g. an exception raised between plt.subplots()
+# and the matching plt.close()) would otherwise silently become "the
+# current figure" for an unrelated plt.colorbar()/plt.figure() call on a
+# later rerun — the concrete cause of a reported
+# "Adding colorbar to a different Figure" warning and, from the same
+# stale-figure-reference family, Streamlit's MediaFileStorageError.
+plt.close('all')
 
 # ── 1. Configuration de la page (DOIT être le premier appel Streamlit) ────
 st.set_page_config(
