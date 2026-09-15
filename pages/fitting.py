@@ -24,10 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from services.data_service import (
-    get_oim, get_registry, load_oifits_multi, build_per_file_filters,
-)
-from services.storage import resolve_selected_paths
+from services.data_service import get_oim, get_registry, get_active_data
 from services.activity_log import log_event, get_log_text
 from config.constants import (
     FITTABLE_DATA_TYPES, MAX_EMCEE_WALKERS, MAX_EMCEE_STEPS,
@@ -60,8 +57,12 @@ def render() -> None:
         st.warning("⚠️ No model saved. Configure and save a model (Modelling tab).")
         return
 
-    data = _get_active_data_with_filter()
-    if data is None:
+    try:
+        data = get_active_data(st.session_state.get('selected_files', []))
+    except ValueError:
+        # get_active_data() raises rather than returning None on an empty
+        # selection — this used to be an unguarded call whose "if data is
+        # None" check below could never actually run.
         st.warning("⚠️ No OIFITS data loaded. Go to the Data tab first.")
         return
 
@@ -392,8 +393,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             result={"dtypes": r['dtypes']},
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-            file_filters=st.session_state.get("file_filters", {}),
-            file_dtypes=st.session_state.get("file_dtypes", {}),
+            applied_filters=st.session_state.get("applied_filters", []),
             registry=registry,
         )
         st.code(code, language="python")
@@ -604,8 +604,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         result={"dtypes": r['dtypes'], "axes": r['axes']},
         data_filenames=st.session_state.get("selected_files", []),
         model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-        file_filters=st.session_state.get("file_filters", {}),
-        file_dtypes=st.session_state.get("file_dtypes", {}),
+        applied_filters=st.session_state.get("applied_filters", []),
         registry=registry,
     )
     zip_bytes = build_results_zip(
@@ -783,8 +782,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             },
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
-            file_filters=st.session_state.get("file_filters", {}),
-            file_dtypes=st.session_state.get("file_dtypes", {}),
+            applied_filters=st.session_state.get("applied_filters", []),
             registry=registry,
         )
         st.code(code, language="python")
@@ -962,67 +960,30 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 # Helpers internes
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _get_active_data_with_filter():
-    """
-    Retourne l'objet oimData actif avec le filtre appliqué — chaque fichier
-    filtré indépendamment des autres (voir pages/data.py et
-    services/data_service.build_per_file_filters()).
-    Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
-
-    Paths are resolved only via resolve_selected_paths(), i.e. only names
-    already present in st.session_state.loaded_files — never by
-    reconstructing a path from a widget value (V2).
-    """
-    paths = resolve_selected_paths(st.session_state.get('selected_files', []))
-
-    if not paths:
-        raise ValueError("No file selected.")
-
-    data = load_oifits_multi(tuple(paths))
-
-    oim          = get_oim()
-    file_order   = st.session_state.get('selected_files', []) or []
-    file_filters = st.session_state.get('file_filters', {})
-    file_dtypes  = st.session_state.get('file_dtypes', {})
-
-    filters = build_per_file_filters(file_filters, file_dtypes, file_order)
-    data.setFilter(oim.oimDataFilter(filters))
-    data.useFilter = True
-
-    return data
-
-
 def _render_dataset_summary() -> None:
-    """Lists the selected datasets, their per-file data types, and the
-    spectral filter/binning currently applied — the same information every
-    fit method below uses, shown once instead of duplicated per method."""
+    """Lists the selected datasets and the filters currently applied —
+    the same information every fit method below uses, shown once instead
+    of duplicated per method. Filters are session-wide (st.session_state.
+    applied_filters, see pages/data.py's filter workbench), not specific
+    to this page."""
     selected = st.session_state.get('selected_files', []) or []
     st.markdown(f"**Datasets** — {len(selected)} selected")
     if not selected:
         st.caption("No dataset selected — go to the Data tab.")
         return
-
-    file_dtypes  = st.session_state.get('file_dtypes', {})
-    file_filters = st.session_state.get('file_filters', {})
     for fname in selected:
-        dtypes = file_dtypes.get(fname)
-        dtypes_txt = ", ".join(dtypes) if dtypes else "all available types"
+        st.markdown(f"- `{fname}`")
 
-        cfg = file_filters.get(fname, {})
-        wl_ranges = cfg.get('wl_ranges') or []
-        filt_bits = []
-        if wl_ranges:
-            ranges_txt = ", ".join(
-                f"[{lo*1e6:.2f}, {hi*1e6:.2f}] µm" for lo, hi in wl_ranges
-            )
-            filt_bits.append(f"λ kept: {ranges_txt}")
-        bin_size = cfg.get('bin', 1)
-        if bin_size and bin_size > 1:
-            norm_txt = ", normalized σ" if cfg.get('normalize_err') else ""
-            filt_bits.append(f"bin={bin_size}{norm_txt}")
-        filt_txt = " · ".join(filt_bits) if filt_bits else "no spectral filter"
-
-        st.markdown(f"- `{fname}` — data types: {dtypes_txt} — {filt_txt}")
+    applied = st.session_state.get('applied_filters', [])
+    if not applied:
+        st.caption("Filters applied: none.")
+        return
+    filt_bits = []
+    for entry in applied:
+        targets = entry["kwargs"].get("targets")
+        targets_txt = "all files" if not targets else f"files {targets}"
+        filt_bits.append(f"{entry['filter_class']} ({targets_txt})")
+    st.caption("Filters applied: " + " · ".join(filt_bits))
 
 
 def _render_model_summary(model_to_use: str) -> None:

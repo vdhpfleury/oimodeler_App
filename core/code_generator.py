@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from config.constants import DEFAULT_PARAM_RANGES, FITTABLE_DATA_TYPES
+from config.constants import DEFAULT_PARAM_RANGES
 
 import locale
 from datetime import datetime
@@ -18,27 +18,27 @@ def date():
 
 
 def generate_fitting_code(method: str, result: dict, data_filenames: list,
-                           model_comps: list, file_filters: dict,
-                           file_dtypes: dict, registry: dict) -> str:
+                           model_comps: list, applied_filters: list,
+                           registry: dict) -> str:
     """
     Génère un script Python autonome reproduisant le fitting.
 
     Paramètres
     ----------
-    method         : "chi2", "grid" ou "emcee"
-    result         : dict contenant dtypes, nwalkers, nsteps, init (emcee)
-    data_filenames : liste des noms de fichiers OIFITS utilisés pour le fit,
-                      dans l'ordre exact utilisé pour construire oimData
-                      (caller passes e.g. st.session_state.selected_files –
-                      no Streamlit dependency here, core/ stays pure).
-    model_comps    : liste de dicts de composants
-    file_filters   : dict { nom_fichier: {'wl_ranges': [(lo_m, hi_m), ...],
-                      'bin': int, 'normalize_err': bool} } — indépendant par
-                      fichier, voir services/data_service.build_per_file_filters
-                      (même contrat, ce module génère juste le code source
-                      équivalent au lieu de l'exécuter).
-    file_dtypes    : dict { nom_fichier: [types de données gardés] }
-    registry       : COMPONENT_REGISTRY
+    method          : "chi2", "grid" ou "emcee"
+    result          : dict contenant dtypes, nwalkers, nsteps, init (emcee)
+    data_filenames  : liste des noms de fichiers OIFITS utilisés pour le fit,
+                       dans l'ordre exact utilisé pour construire oimData
+                       (caller passes e.g. st.session_state.selected_files –
+                       no Streamlit dependency here, core/ stays pure).
+    model_comps     : liste de dicts de composants
+    applied_filters : liste de specs { 'filter_class': str, 'kwargs': dict }
+                       — même contrat que st.session_state.applied_filters
+                       (voir core/filter_registry.py + pages/data.py's filter
+                       workbench et services/data_service.build_filters_from_specs,
+                       ce module génère juste le code source équivalent au
+                       lieu de l'exécuter).
+    registry        : COMPONENT_REGISTRY
     """
 
     lines = []
@@ -77,60 +77,26 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
         "",
     ]
 
-    # ── Filtre spectral — INDÉPENDANT par fichier ──────────────────────
-    # Each filter object is targeted at exactly one file's index via
-    # targets=[i] (a list) — never targets=i (a bare int): oimodeler's
-    # oimDataFilterComponent.applyFilter() wraps a bare int in a
-    # single-element list too, so targets=0 on a multi-file oimData
-    # silently applies ONLY to the first file. See
-    # services/data_service.build_per_file_filters for the same contract
-    # applied live instead of generated here.
-    lines += ["# ── 2. Per-file spectral filtering ─────────────────────"]
-    all_types = set(FITTABLE_DATA_TYPES)
+    # ── Filtres appliqués (partagés pour toute la session) ─────────────
+    # Mirrors services/data_service.build_filters_from_specs(): None-valued
+    # kwargs are omitted rather than passed literally, letting the filter
+    # class fall back to its own default ("all") instead of crashing on
+    # e.g. arr=None.
+    lines += ["# ── 2. Applied filters ──────────────────────────────────"]
     filter_var_names = []
-    any_filter = False
 
-    for i, fname in enumerate(data_filenames):
-        cfg = file_filters.get(fname, {})
-        wl_ranges = cfg.get("wl_ranges") or []
-        bin_size  = cfg.get("bin", 1)
-        norm_err  = cfg.get("normalize_err", False)
-        dtypes    = file_dtypes.get(fname)
+    for i, spec in enumerate(applied_filters):
+        vname = f"f{i+1}"
+        clean_kwargs = {k: v for k, v in spec.get("kwargs", {}).items() if v is not None}
+        kwargs_str = ", ".join(f"{k}={v!r}" for k, v in clean_kwargs.items())
+        lines.append(f"{vname} = oim.{spec['filter_class']}({kwargs_str})")
+        filter_var_names.append(vname)
 
-        file_has_filter = False
-        if wl_ranges:
-            vname = f"f_wl{i+1}"
-            ranges_repr = [list(r) for r in wl_ranges]
-            lines.append(
-                f"{vname} = oim.oimWavelengthRangeFilter(targets=[{i}], "
-                f"wlRange={ranges_repr!r}, method='cut')"
-            )
-            filter_var_names.append(vname)
-            file_has_filter = True
-        if bin_size and bin_size > 1:
-            vname = f"f_bin{i+1}"
-            lines.append(
-                f"{vname} = oim.oimWavelengthBinningFilter(targets=[{i}], "
-                f"bin={bin_size}, normalizeError={norm_err!r})"
-            )
-            filter_var_names.append(vname)
-            file_has_filter = True
-        if dtypes is not None and set(dtypes) < all_types:
-            vname = f"f_dt{i+1}"
-            lines.append(
-                f"{vname} = oim.oimKeepDataTypeFilter(targets=[{i}], dataType={list(dtypes)!r})"
-            )
-            filter_var_names.append(vname)
-            file_has_filter = True
-
-        if file_has_filter:
-            any_filter = True
-        else:
-            lines.append(f"# {fname}: no filter applied (kept as-is)")
-
-    if any_filter:
+    if filter_var_names:
         lines.append(f"data.setFilter(oim.oimDataFilter([{', '.join(filter_var_names)}]))")
         lines.append("data.useFilter = True")
+    else:
+        lines.append("# No filter applied — data used as-is")
     lines.append("")
 
     # ── Construction du modèle ────────────────────────────────────────

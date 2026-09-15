@@ -27,10 +27,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from services.data_service import (
-    get_oim, get_registry, load_oifits_multi, build_per_file_filters,
-)
-from services.storage import resolve_selected_paths
+from services.data_service import get_oim, get_registry, get_active_data
 from services.activity_log import log_event
 from core.component import make_comp_dict, get_comp_by_name
 from core.model_builder import (
@@ -223,7 +220,10 @@ def _render_basic_model() -> None:
                     except InvalidInput as exc:
                         st.warning(str(exc))
                 else:
-                    data = _get_active_data_with_filter()
+                    try:
+                        data = get_active_data(st.session_state.get('selected_files', []))
+                    except ValueError:
+                        data = None
                     if data is not None:
                         with st.expander(label="Graph preview parameters", expanded=False):
                             col1, col2 = st.columns(2)
@@ -633,8 +633,12 @@ def _render_model_summary() -> None:
         st.info("No model available. Create or import a model first.")
         return
 
-    data = _get_active_data_with_filter()
-    if data is None:
+    try:
+        data = get_active_data(st.session_state.get('selected_files', []))
+    except ValueError:
+        # get_active_data() raises rather than returning None on an empty
+        # selection — this used to be an unguarded call whose "if data is
+        # None" check below could never actually run.
         st.warning("Load OIFITS data first (Data tab).")
         return
 
@@ -802,35 +806,3 @@ def _render_model_management() -> None:
                 st.rerun()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Helper interne
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _get_active_data_with_filter():
-    """
-    Retourne l'objet oimData actif avec le filtre appliqué — chaque fichier
-    filtré indépendamment des autres (voir pages/data.py et
-    services/data_service.build_per_file_filters()).
-    Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
-
-    Paths are resolved only via resolve_selected_paths(), i.e. only names
-    already present in st.session_state.loaded_files — never by
-    reconstructing a path from a widget value (V2).
-    """
-    paths = resolve_selected_paths(st.session_state.get('selected_files', []))
-
-    if not paths:
-        raise ValueError("No file selected.")
-
-    data = load_oifits_multi(tuple(paths))
-
-    oim          = get_oim()
-    file_order   = st.session_state.get('selected_files', []) or []
-    file_filters = st.session_state.get('file_filters', {})
-    file_dtypes  = st.session_state.get('file_dtypes', {})
-
-    filters = build_per_file_filters(file_filters, file_dtypes, file_order)
-    data.setFilter(oim.oimDataFilter(filters))
-    data.useFilter = True
-
-    return data
