@@ -150,6 +150,16 @@ def extract_filter_metadata(filepath: str, display_name: str) -> pd.DataFrame:
             wl_info = wavelengths.get(
                 insname, {"wl_min_um": np.nan, "wl_max_um": np.nan, "n_channels": np.nan},
             )
+            # Best-effort guess at which recognized columns (VIS2DATA,
+            # FLUXDATA, ...) this table carries — real files sometimes
+            # don't match (e.g. a GRAVITY reduction naming its flux
+            # column differently). That must never hide the ARRAY itself
+            # from the filter form: oimRemoveArrayFilter/oimRemoveInsnameFilter
+            # and the "Arrays / Tables" target widget operate on the table
+            # name, not on a recognized column inside it — see the `else`
+            # branch below, which still emits one row per baseline/target
+            # (with datatype=None, dropped by get_available_values()'s
+            # dataTypes list but NOT by its arrays list).
             data_types = [dt for dt in _TABLE_DATA_TYPES.get(array_name, [])
                           if dt in table.names]
 
@@ -167,21 +177,24 @@ def extract_filter_metadata(filepath: str, display_name: str) -> pd.DataFrame:
                 else:
                     baseline, telescope_list = "N/A", "N/A"
 
-                for datatype in data_types:
-                    rows.append({
-                        "file":        display_name,
-                        "target_id":   target_id,
-                        "target":      target_name,
-                        "insname":     insname,
-                        "array":       array_name,
-                        "datatype":    datatype,
-                        "baseline":    baseline,
-                        "telescopes":  telescope_list,
-                        "wl_min_um":   wl_info["wl_min_um"],
-                        "wl_max_um":   wl_info["wl_max_um"],
-                        "n_channels":  wl_info["n_channels"],
-                        "row":         row_number,
-                    })
+                base_row = {
+                    "file":        display_name,
+                    "target_id":   target_id,
+                    "target":      target_name,
+                    "insname":     insname,
+                    "array":       array_name,
+                    "baseline":    baseline,
+                    "telescopes":  telescope_list,
+                    "wl_min_um":   wl_info["wl_min_um"],
+                    "wl_max_um":   wl_info["wl_max_um"],
+                    "n_channels":  wl_info["n_channels"],
+                    "row":         row_number,
+                }
+                if data_types:
+                    for datatype in data_types:
+                        rows.append({**base_row, "datatype": datatype})
+                else:
+                    rows.append({**base_row, "datatype": None})
 
     return pd.DataFrame(rows)
 
