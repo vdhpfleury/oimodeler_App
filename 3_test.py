@@ -18,7 +18,39 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 
+import matplotlib.pyplot as plt
 import streamlit as st
+
+# Resets pyplot's global figure registry at the start of every rerun —
+# st.tabs() executes ALL tabs' render() every rerun (only the DOM display
+# of inactive tabs is hidden, their Python code still runs), so a figure
+# left open by one page (e.g. an exception raised between plt.subplots()
+# and the matching plt.close()) would otherwise silently become "the
+# current figure" for an unrelated plt.colorbar()/plt.figure() call on a
+# later rerun — the concrete cause of a reported
+# "Adding colorbar to a different Figure" warning and, from the same
+# stale-figure-reference family, Streamlit's MediaFileStorageError.
+#
+# NOTE — "only render the active tab" was tried here and reverted:
+# 1. st.segmented_control + rendering only the selected page: Streamlit
+#    deletes a widget's session_state entry entirely whenever that widget
+#    isn't instantiated on a given rerun (confirmed via isolated repro) —
+#    switching tabs silently wiped every keyed widget's value (selected
+#    files, applied filters, ...) on the pages left un-rendered.
+# 2. st.tabs() + st.fragment per tab (keeps every tab "mounted", so no
+#    state eviction): fixes #1, but st.tabs() itself never triggers a
+#    rerun on switch (pure client-side CSS toggle) — a fragment only
+#    reruns from an interaction inside it, so a page reading state
+#    written by ANOTHER tab's fragment (e.g. Fitting reading a model just
+#    saved on Modelling) can show stale content until the user interacts
+#    with something on that page. Confirmed live: switching straight to
+#    Fitting after saving a model on Modelling still showed "No model
+#    saved" — this app's tabs are too cross-dependent (shared
+#    MODEL/loaded_files/applied_filters) for a naive per-tab fragment.
+# A correct version would need each page's render() split into a cheap
+# "gate" part (always run) and an expensive "compute" part (fragment-
+# scoped) — real surgery across every page, not attempted here.
+plt.close('all')
 
 # ── 1. Configuration de la page (DOIT être le premier appel Streamlit) ────
 st.set_page_config(
@@ -71,7 +103,7 @@ with tab_visu:
     render_explorer()
 
 with tab_data:
-    render_data()  
+    render_data()
 
 with tab_model:
     render_modelling()

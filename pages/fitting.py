@@ -36,7 +36,11 @@ from core.model_builder import (
     decompose_model_flux,
     extract_model_image,
 )
-from core.fitting import random_search
+from core.fitting import (
+    random_search,
+    run_grid_search_with_progress,
+    run_emcee_with_progress,
+)
 from core.results import get_result_df, update_model_from_fit, build_results_zip
 from core.code_generator import generate_fitting_code
 from core.model_export import model_to_txt
@@ -542,8 +546,14 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
                 max=[a['hi'] for a in axes],
                 steps=[(a['hi'] - a['lo']) / (a['n'] - 1) for a in axes],
             )
-            with st.spinner("Grid search running …", show_time=True):
-                gfit.run(progress=False)
+            progress_bar = st.progress(0)
+            status_box   = st.empty()
+            status_box.info("Grid search running …")
+            run_grid_search_with_progress(
+                gfit, progress_callback=lambda v: progress_bar.progress(v),
+            )
+            progress_bar.empty()
+            status_box.empty()
 
             st.session_state.grid_result = {
                 'model_initial':   model_init,
@@ -725,8 +735,14 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             sampler_path.unlink(missing_ok=True)
             emfit.prepare(init=init_mode, samplerFile=str(sampler_path))
 
-            with st.spinner("MCMC running …", show_time=True):
-                emfit.run(nsteps=nb_steps, progress=True)
+            progress_bar = st.progress(0)
+            status_box   = st.empty()
+            status_box.info("MCMC running …")
+            run_emcee_with_progress(
+                emfit, nb_steps, progress_callback=lambda v: progress_bar.progress(v),
+            )
+            progress_bar.empty()
+            status_box.empty()
 
             st.session_state.emcee_result = {
                 'model_initial':    model_init,
@@ -892,7 +908,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                     extent=[extent_half, -extent_half, -extent_half, extent_half],
                     vmin=vmin, vmax=vmax,
                 )
-                plt.colorbar(im_plot, ax=ax_img, label=f'Intensity (γ={img_gamma})')
+                # fig_img.colorbar (not plt.colorbar): see the same fix's
+                # comment in pages/explorer.py — plt.colorbar() attaches to
+                # pyplot's global "current figure", which drifts once
+                # several tabs/figures are built in the same rerun.
+                fig_img.colorbar(im_plot, ax=ax_img, label=f'Intensity (γ={img_gamma})')
                 ax_img.set_xlabel("ΔRA (mas)"); ax_img.set_ylabel("ΔDec (mas)")
                 wl_label = f" @ {wl_val*1e6:.2f} µm" if wl_val else ""
                 ax_img.set_title(f"Model{wl_label}")

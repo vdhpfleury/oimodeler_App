@@ -199,7 +199,14 @@ def render() -> None:
                 ax.set_xlabel('ΔRA (mas)')
                 ax.set_ylabel('ΔDec (mas)')
                 ax.set_title(f'{selected_comp}  –  γ = {gamma}')
-                plt.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
+                # fig.colorbar (not plt.colorbar): plt.colorbar() attaches
+                # to whatever pyplot's global "current figure" happens to
+                # be, which can be a stale/different figure from an
+                # earlier render in the same script run once more than one
+                # figure exists at once (see the Visibility-vs-baseline
+                # panel built right after this one) — explicit fig avoids
+                # the colorbar silently landing on the wrong plot.
+                fig.colorbar(im_disp, ax=ax, label='Intensity (γ corrected)')
                 safe_pyplot(st, fig)
             except Exception as e:
                 st.error(f"Cannot display component image: {e}")
