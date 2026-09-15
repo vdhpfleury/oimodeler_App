@@ -25,10 +25,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from services.data_service import (
-    get_oim, get_filtered_wavelengths, load_oifits_multi, build_data_type_filters,
+    get_oim, get_file_summary, get_filtered_wavelengths_for_file,
+    load_oifits_multi, build_per_file_filters,
 )
 from services.storage import store, resolve_selected_paths
-from core.validation import num, choice, filter_expression, InvalidInput
+from core.validation import num, choice, choices, InvalidInput
 from components.plots import safe_pyplot
 from config.constants import FITTABLE_DATA_TYPES
 
@@ -108,124 +109,41 @@ def _render_filter_section() -> None:
             # if nothing was ever selected this stays None (see session.py).
             pass
 
-        filepath = st.session_state.loaded_files.get(st.session_state.selected_file)
+        if not selected:
+            st.caption("Select at least one dataset to configure its filters.")
+            return
 
-        # ── Sélection des types de données par fichier ───────────────
-        # Certains fichiers n'ont que V2, d'autres que la phase de clôture,
-        # etc. — ceci permet de garder un fichier tout en n'utilisant que
-        # certains de ses observables (voir oim.oimKeepDataTypeFilter).
-        if selected:
-            with st.expander("Data types to use per file", expanded=False):
-                for fname in selected:
-                    default = st.session_state.file_dtypes.get(fname, FITTABLE_DATA_TYPES)
-                    chosen_raw = st.multiselect(
-                        f"Data types — {fname}", FITTABLE_DATA_TYPES,
-                        default=default, key=f"dtypes_sel_{fname}",
-                    )
-                    # multiselect can echo back an unrecognized client value
-                    # as-is (V4) — drop anything outside the known types.
-                    chosen = [t for t in chosen_raw if t in FITTABLE_DATA_TYPES]
-                    st.session_state.file_dtypes[fname] = chosen
+        # ── Résumés par fichier (instrument, cible, config VLTI, λ native)
+        # — lecture-seule et cachée (services/data_service.get_file_summary),
+        # sert à la fois au sous-titre et au préremplissage des bornes.
+        summaries = {
+            fname: get_file_summary(st.session_state.loaded_files[fname])
+            for fname in selected
+        }
+        by_instrument: dict[str, list[str]] = {}
+        for fname in selected:
+            instr = summaries[fname].get("instrument") or "Unknown"
+            by_instrument.setdefault(instr, []).append(fname)
 
-        # ── Paramètres de filtre ──────────────────────────────────────
-        n_ranges_raw = st.radio("Number of spectral ranges", [1, 2],
-                            horizontal=True, key="n_wl_ranges")
-        n_ranges = choice(n_ranges_raw, (1, 2), "Number of spectral ranges")
+        st.markdown("##### Per-file spectral filtering")
+        st.caption(
+            "Each file below is filtered independently. Wavelength ranges "
+            "default to the file's own coverage (no cut) — adjust only what "
+            "needs narrowing."
+        )
+        for fname in selected:
+            _render_one_file_filter(
+                fname, summaries[fname], selected,
+                by_instrument[summaries[fname].get("instrument") or "Unknown"],
+            )
+
         rc1, rc2 = st.columns([2, 3])
-
         with rc1:
-            st.markdown("**Range 1**")
-            c1, c2 = st.columns(2)
-            with c1:
-                wl1_min_raw = st.number_input("λ min (µm)", value=2.9, step=0.1,
-                                          format="%.2f", key="wl1_min")
-            with c2:
-                wl1_max_raw = st.number_input("λ max (µm)", value=4.2, step=0.1,
-                                          format="%.2f", key="wl1_max")
-
-            if n_ranges == 2:
-                st.markdown("**Range 2**")
-                c3, c4 = st.columns(2)
-                with c3:
-                    wl2_min_raw = st.number_input("λ min (µm)", value=4.45, step=0.1,
-                                              format="%.2f", key="wl2_min")
-                with c4:
-                    wl2_max_raw = st.number_input("λ max (µm)", value=5.0, step=0.1,
-                                              format="%.2f", key="wl2_max")
-            else:
-                wl2_min_raw = wl2_max_raw = None
-
-            st.markdown("##### Spectral binning")
-            cb1, cb2 = st.columns(2)
-            with cb1:
-                st.markdown("**L band**")
-                bin_L_raw = st.slider("Bin L", 1, 20, 1, key="bin_L")
-                norm_L = st.toggle("Normalize σ (L)", value=False, key="norm_L")
-            with cb2:
-                st.markdown("**N band**")
-                bin_N_raw = st.slider("Bin N", 1, 20, 1, key="bin_N")
-                norm_N = st.toggle("Normalize σ (N)", value=False, key="norm_N")
-
-            # ── Construction de l'expression de filtre ────────────────
             try:
-                # Widget bounds (min_value/max_value/slider range) are
-                # cosmetic only — re-validate every value server-side (V4).
-                wl1_min = num(wl1_min_raw, 0.1, 30.0, "λ min (range 1)")
-                wl1_max = num(wl1_max_raw, 0.1, 30.0, "λ max (range 1)")
-                if wl1_min >= wl1_max:
-                    raise InvalidInput("λ min must be smaller than λ max (range 1).")
-                bin_L = num(bin_L_raw, 1, 20, "Bin L", integer=True)
-                bin_N = num(bin_N_raw, 1, 20, "Bin N", integer=True)
-
-                w1_lo = wl1_min * 1e-6
-                w1_hi = wl1_max * 1e-6
-
-                if n_ranges == 1:
-                    expr = f"(EFF_WAVE<{w1_lo}) | (EFF_WAVE>{w1_hi})"
-                else:
-                    wl2_min = num(wl2_min_raw, 0.1, 30.0, "λ min (range 2)")
-                    wl2_max = num(wl2_max_raw, 0.1, 30.0, "λ max (range 2)")
-                    if wl2_min >= wl2_max:
-                        raise InvalidInput("λ min must be smaller than λ max (range 2).")
-                    w2_lo = wl2_min * 1e-6
-                    w2_hi = wl2_max * 1e-6
-                    expr  = (
-                        f"((EFF_WAVE<{w1_lo}) | (EFF_WAVE>{w1_hi})) & "
-                        f"((EFF_WAVE<{w2_lo}) | (EFF_WAVE>{w2_hi}))"
-                    )
-
-                # Allowlist the expression before it can ever reach
-                # oimodeler's oifitsFlagWithExpression eval() sink (V5).
-                expr = filter_expression(expr)
-
-                # Stocke les paramètres de filtre dans session_state
-                st.session_state.filter_expr   = expr
-                st.session_state.filter_bin_L  = bin_L
-                st.session_state.filter_bin_N  = bin_N
-                st.session_state.filter_norm_L = norm_L
-                st.session_state.filter_norm_N = norm_N
-
-                if filepath is not None:
-                    # ✅ Les longueurs d'onde filtrées sont cachées par data_service
-                    wls = get_filtered_wavelengths(filepath, expr, bin_L, bin_N)
-                    wls_arr = np.array(wls)
-
-                    if n_ranges == 2:
-                        st.info(
-                            f"After filtering: {len(wls)} points  |  "
-                            f"Range 1: [{wl1_min:.2f}, {wl1_max:.2f}] µm  —  "
-                            f"Range 2: [{wl2_min:.2f}, {wl2_max:.2f}] µm"
-                        )
-                    else:
-                        st.info(
-                            f"After filtering: {len(wls)} points  |  "
-                            f"λ ∈ [{wls_arr.min()*1e6:.3f}, {wls_arr.max()*1e6:.3f}] µm"
-                        )
-
-            except InvalidInput as exc:
-                st.warning(str(exc))
+                data = _get_active_data_with_filter()
+                st.info(f"Combined selection: {len(np.unique(data.vect_wl))} wavelength points.")
             except Exception:
-                logger.exception("Cannot apply spectral filter")
+                logger.exception("Cannot summarize the combined filtered selection")
                 st.warning("Cannot apply the current filter settings.")
 
         # ── UV coverage ───────────────────────────────────────────────
@@ -242,6 +160,161 @@ def _render_filter_section() -> None:
             except Exception:
                 logger.exception("UV plot failed")
                 st.warning("Could not render the UV plot for the current selection.")
+
+
+def _render_one_file_filter(fname: str, summary: dict, all_selected: list[str],
+                             same_instrument: list[str]) -> None:
+    """One file's independent filter block: a metadata subtitle, optional
+    'apply to all' shortcuts, wavelength range(s), binning, and the data
+    types to keep — plus a live point-count check of the result."""
+    wl_lo_native = summary.get("wl_min_um")
+    wl_hi_native = summary.get("wl_max_um")
+
+    subtitle_bits = [
+        summary.get("instrument"),
+        summary.get("target"),
+        (summary.get("date_obs") or "")[:10] or None,
+        summary.get("vlti_config"),
+    ]
+    subtitle_bits = [b for b in subtitle_bits if b]
+    if wl_lo_native is not None:
+        subtitle_bits.append(f"{wl_lo_native:.2f}–{wl_hi_native:.2f} µm native")
+    subtitle = " · ".join(subtitle_bits) if subtitle_bits else "No metadata available"
+
+    with st.expander(f"📄 {fname}", expanded=len(all_selected) <= 3):
+        st.caption(subtitle)
+
+        instr = summary.get("instrument")
+        show_instr_btn = bool(instr) and len(same_instrument) > 1
+        btn_cols = st.columns(2 if show_instr_btn else 1)
+        with btn_cols[0]:
+            if st.button("🔁 Apply to all files", key=f"apply_all_{fname}",
+                         use_container_width=True, disabled=len(all_selected) <= 1):
+                _copy_filter_widget_keys(fname, all_selected)
+                st.rerun()
+        if show_instr_btn:
+            with btn_cols[1]:
+                if st.button(f"🔁 Apply to all {instr} files", key=f"apply_instr_{fname}",
+                             use_container_width=True):
+                    _copy_filter_widget_keys(fname, same_instrument)
+                    st.rerun()
+
+        default_lo = wl_lo_native if wl_lo_native is not None else 0.1
+        default_hi = wl_hi_native if wl_hi_native is not None else 20.0
+
+        # `value=`/`default=` is passed on every render, not just the first
+        # — omitting it once a widget's key already holds a value makes
+        # Streamlit's number_input silently reset to 0 instead of reading
+        # session_state, so despite the "created with a default value but
+        # also had its value set via the Session State API" warning this
+        # triggers right after "Apply to all" copies a value in
+        # (_copy_filter_widget_keys), always passing it is the only
+        # combination that keeps the widget's value correct.
+        use_range = st.checkbox(
+            "Keep only a wavelength sub-range", value=False,
+            key=f"filt_use_range_{fname}",
+        )
+        wl_ranges_um: list[tuple[float, float]] = []
+        if use_range:
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                lo1_raw = st.number_input("λ min (µm)", value=default_lo, step=0.1,
+                                          format="%.2f", key=f"filt_wl_lo_{fname}")
+            with fc2:
+                hi1_raw = st.number_input("λ max (µm)", value=default_hi, step=0.1,
+                                          format="%.2f", key=f"filt_wl_hi_{fname}")
+            use_range2 = st.checkbox(
+                "Add a second range to keep", value=False,
+                key=f"filt_use_range2_{fname}",
+            )
+            lo2_raw = hi2_raw = None
+            if use_range2:
+                fc3, fc4 = st.columns(2)
+                with fc3:
+                    lo2_raw = st.number_input("λ min (µm) — range 2", value=default_lo, step=0.1,
+                                              format="%.2f", key=f"filt_wl_lo2_{fname}")
+                with fc4:
+                    hi2_raw = st.number_input("λ max (µm) — range 2", value=default_hi, step=0.1,
+                                              format="%.2f", key=f"filt_wl_hi2_{fname}")
+
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            bin_raw = st.number_input("Spectral binning", 1, 50, 1, key=f"filt_bin_{fname}")
+        with bc2:
+            norm_err = st.toggle("Normalize σ by bin size", value=False, key=f"filt_norm_{fname}")
+
+        with st.expander("Data types to keep", expanded=False):
+            default_dtypes = st.session_state.file_dtypes.get(fname, FITTABLE_DATA_TYPES)
+            dtypes_raw = st.multiselect(
+                "Data types", FITTABLE_DATA_TYPES,
+                default=default_dtypes, key=f"dtypes_sel_{fname}",
+            )
+
+        try:
+            wl_ranges_m: list[tuple[float, float]] = []
+            if use_range:
+                lo1 = num(lo1_raw, 0.1, 30.0, "λ min")
+                hi1 = num(hi1_raw, 0.1, 30.0, "λ max")
+                if lo1 >= hi1:
+                    raise InvalidInput("λ min must be smaller than λ max.")
+                wl_ranges_m.append((lo1 * 1e-6, hi1 * 1e-6))
+                if use_range2:
+                    lo2 = num(lo2_raw, 0.1, 30.0, "λ min (range 2)")
+                    hi2 = num(hi2_raw, 0.1, 30.0, "λ max (range 2)")
+                    if lo2 >= hi2:
+                        raise InvalidInput("λ min must be smaller than λ max (range 2).")
+                    wl_ranges_m.append((lo2 * 1e-6, hi2 * 1e-6))
+
+            bin_size = num(bin_raw, 1, 50, "Spectral binning", integer=True)
+            dtypes   = choices(dtypes_raw, FITTABLE_DATA_TYPES, "Data types")
+
+            st.session_state.file_filters[fname] = {
+                "wl_ranges":     wl_ranges_m,
+                "bin":           bin_size,
+                "normalize_err": bool(norm_err),
+            }
+            st.session_state.file_dtypes[fname] = dtypes
+
+            filepath = st.session_state.loaded_files[fname]
+            wls = get_filtered_wavelengths_for_file(
+                filepath, tuple(wl_ranges_m), bin_size, bool(norm_err),
+            )
+            if wls:
+                wls_arr = np.array(wls)
+                st.caption(
+                    f"→ {len(wls)} wavelength points after filtering  |  "
+                    f"λ ∈ [{wls_arr.min()*1e6:.3f}, {wls_arr.max()*1e6:.3f}] µm"
+                )
+            else:
+                st.warning("This filter removes every wavelength point of this file.")
+        except InvalidInput as exc:
+            st.warning(str(exc))
+        except Exception:
+            logger.exception("Cannot apply per-file filter for %s", fname)
+            st.warning("Cannot apply the current filter settings for this file.")
+
+
+def _copy_filter_widget_keys(src: str, targets: list[str]) -> None:
+    """Copies one file's filter *widget* values onto other files' own widget
+    keys, not just the derived `file_filters` dict — a Streamlit widget only
+    honors its `value=` default on the very first render for a given key, so
+    writing `file_filters` alone would leave the visible widgets unchanged
+    until the user touches them."""
+    widget_keys = (
+        "filt_use_range", "filt_wl_lo", "filt_wl_hi",
+        "filt_use_range2", "filt_wl_lo2", "filt_wl_hi2",
+        "filt_bin", "filt_norm", "dtypes_sel",
+    )
+    for target in targets:
+        if target == src:
+            continue
+        for k in widget_keys:
+            src_key = f"{k}_{src}"
+            if src_key in st.session_state:
+                value = st.session_state[src_key]
+                st.session_state[f"{k}_{target}"] = (
+                    list(value) if isinstance(value, list) else value
+                )
 
 
 # ── Section 3 : Observables ───────────────────────────────────────────────
@@ -283,14 +356,15 @@ def _render_observables() -> None:
 
 def _get_active_data_with_filter():
     """
-    Retourne l'objet oimData actif avec le filtre appliqué.
+    Retourne l'objet oimData actif avec le filtre appliqué — chaque fichier
+    filtré indépendamment des autres (voir _render_one_file_filter() et
+    services/data_service.build_per_file_filters()).
     Utilise le cache de load_oifits_multi() pour ne pas recharger le fichier.
 
     Paths are resolved only via resolve_selected_paths(), i.e. only names
     already present in st.session_state.loaded_files — never by
     reconstructing a path from a widget value (V2).
     """
-    oim   = get_oim()
     paths = resolve_selected_paths(st.session_state.get('selected_files', []))
 
     if not paths:
@@ -298,20 +372,12 @@ def _get_active_data_with_filter():
 
     data = load_oifits_multi(tuple(paths))
 
-    expr  = st.session_state.get('filter_expr', '')
-    bin_L = st.session_state.get('filter_bin_L', 1)
-    bin_N = st.session_state.get('filter_bin_N', 1)
-    norm_L = st.session_state.get('filter_norm_L', False)
-    norm_N = st.session_state.get('filter_norm_N', False)
+    oim         = get_oim()
+    file_order  = st.session_state.get('selected_files', []) or []
+    file_filters = st.session_state.get('file_filters', {})
+    file_dtypes  = st.session_state.get('file_dtypes', {})
 
-    file_order = st.session_state.get('selected_files', []) or []
-    file_dtypes = st.session_state.get('file_dtypes', {})
-
-    filters = build_data_type_filters(file_dtypes, file_order)
-    if expr:
-        filters.append(oim.oimFlagWithExpressionFilter(expr=expr, keepOldFlag=True))
-    filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_L, normalizeError=norm_L))
-    filters.append(oim.oimWavelengthBinningFilter(targets=0, bin=bin_N, normalizeError=norm_N))
+    filters = build_per_file_filters(file_filters, file_dtypes, file_order)
     data.setFilter(oim.oimDataFilter(filters))
     data.useFilter = True
 

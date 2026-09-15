@@ -39,12 +39,10 @@ _DEFAULTS: dict = {
     'selected_files':       [],   # liste des noms sélectionnés dans l'étape II
     'file_dtypes':          {},   # str → list[str]  (nom → types de données gardés)
 
-    # Paramètres de filtrage spectral actifs
-    'filter_expr':          '',
-    'filter_bin_L':         1,
-    'filter_bin_N':         1,
-    'filter_norm_L':        False,
-    'filter_norm_N':        False,
+    # Paramètres de filtrage spectral actifs — INDÉPENDANTS par fichier
+    # (voir core/oifits_meta.py + services/data_service.build_per_file_filters).
+    # str → {'wl_ranges': [(lo_m, hi_m), ...], 'bin': int, 'normalize_err': bool}
+    'file_filters':         {},
 
     # Résultats d'optimisation (Random search)
     'optimization_done':    False,

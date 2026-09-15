@@ -35,7 +35,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(REPO_ROOT, "tutorial", "Data", "RealData", "MATISSE", "HD179218")
 DATA_FILE = "OiXP_HD179218_MATISSE_A0-B2-C1-D0_2019-03-24.fits"
 
-FILTER_PARAMS = {"expr": "", "bin_L": 1, "bin_N": 1, "norm_L": False, "norm_N": False}
+FILE_FILTERS = {DATA_FILE: {}}
+FILE_DTYPES: dict = {}
 
 # A model with one plain component and one component that has an
 # interpolated parameter ('f' on comp2, custom wl spline) — this is exactly
@@ -96,7 +97,8 @@ def test_generated_code_does_not_use_positional_zip(registry):
         result={"dtypes": ["VIS2DATA"]},
         data_filenames=[DATA_FILE],
         model_comps=MODEL_COMPS,
-        filter_params=FILTER_PARAMS,
+        file_filters=FILE_FILTERS,
+        file_dtypes=FILE_DTYPES,
         registry=registry,
     )
     # The historical bug: zip(model.getParameters().keys(), min_value, max_value, free_status)
@@ -119,7 +121,8 @@ def test_param_settings_are_name_keyed_and_skip_interpolated_params(registry):
         result={"dtypes": ["VIS2DATA"]},
         data_filenames=[DATA_FILE],
         model_comps=MODEL_COMPS,
-        filter_params=FILTER_PARAMS,
+        file_filters=FILE_FILTERS,
+        file_dtypes=FILE_DTYPES,
         registry=registry,
     )
     settings = _extract_param_settings(code)
@@ -173,7 +176,8 @@ def test_generated_script_actually_runs(tmp_path, registry, method, result):
         result=result,
         data_filenames=[DATA_FILE],
         model_comps=MODEL_COMPS,
-        filter_params=FILTER_PARAMS,
+        file_filters=FILE_FILTERS,
+        file_dtypes=FILE_DTYPES,
         registry=registry,
     )
     code = code.replace(
