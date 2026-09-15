@@ -66,6 +66,12 @@ _DEFAULTS: dict = {
     # Journal d'activité horodaté de la session — jamais affiché à l'écran,
     # inclus tel quel dans les zip de résultats (services/activity_log.py).
     'activity_log':         [],
+
+    # Onglet actif de la navigation principale (3_test.py). Piloté par
+    # st.segmented_control : seule la page correspondante est rendue à
+    # chaque rerun (voir 3_test.py — st.tabs() rendait les 5 pages à
+    # chaque interaction, même celles non visibles).
+    'active_tab':            "📋 Overview",
 }
 
 

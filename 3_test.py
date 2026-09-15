@@ -68,28 +68,46 @@ from pages.fitting     import render as render_fitting      # noqa: E402
 
 st.image("./images/logo.png")
 
-tab_home, tab_visu, tab_data, tab_model, tab_fit = st.tabs([
+# Navigation par onglets rendue via st.segmented_control plutôt que
+# st.tabs() : st.tabs() exécute le code Python des 5 onglets à CHAQUE
+# rerun (seul l'affichage DOM des onglets inactifs est masqué côté
+# frontend), ce qui provoquait un recalcul systématique des 5 pages —
+# y compris figures matplotlib et chargements de données — à chaque
+# interaction, même dans un onglet non consulté. Avec
+# segmented_control, st.session_state.active_tab sélectionne l'onglet
+# et seule la fonction render() correspondante est appelée.
+_TAB_LABELS = [
     "📋 Overview",
     "🔬 Component Explorer",
     "📂 Data",
     "⚙️ Modelling",
     "📐 Fitting",
-])
+]
+_TAB_RENDERERS = {
+    "📋 Overview":            render_overview,
+    "🔬 Component Explorer":  render_explorer,
+    "📂 Data":                render_data,
+    "⚙️ Modelling":           render_modelling,
+    "📐 Fitting":              render_fitting,
+}
 
-with tab_home:
-    render_overview()
+# Pas de `default=` : la clé 'active_tab' est déjà initialisée par
+# init_session_state(), st.segmented_control la lit directement via `key`.
+active_tab = st.segmented_control(
+    "Navigation",
+    options=_TAB_LABELS,
+    label_visibility="collapsed",
+    key="active_tab",
+)
+# segmented_control renvoie None si l'utilisateur déselectionne l'onglet
+# actif (deuxième clic dessus) : on retombe sur "Overview" plutôt que de
+# rendre une page vide, et on resynchronise la session_state pour le
+# prochain rerun.
+if active_tab is None:
+    active_tab = "📋 Overview"
+    st.session_state.active_tab = active_tab
 
-with tab_visu:
-    render_explorer()
-
-with tab_data:
-    render_data()  
-
-with tab_model:
-    render_modelling()
-
-with tab_fit:
-    render_fitting()
+_TAB_RENDERERS[active_tab]()
 
 # ── Footer ────────────────────────────────────────────────────────────────
 st.markdown("---")
