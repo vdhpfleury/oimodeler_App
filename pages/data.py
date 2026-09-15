@@ -345,31 +345,53 @@ def _render_observables() -> None:
 
         try:
             data = _get_active_data_with_filter()
-            fig, (ax1, ax2, ax3) = plt.subplots(
-                ncols=3, figsize=(15, 4),
-                subplot_kw={'projection': 'oimAxes'},
-            )
-            ax1.oiplot(data, "SPAFREQ", "VIS2DATA",
-                    xunit="cycle/mas", color="byBaseline", errorbar=True)
-            ax1.set_title("VIS2")
-            ax1.legend(fontsize=8)
-
-            ax2.oiplot(data, "EFF_WAVE", "T3PHI",
-                    xunit="micron", color="byBaseline", errorbar=True)
-            ax2.set_title("T3PHI")
-            ax2.legend(fontsize=8)
-
-
-            ax3.oiplot(data, "EFF_WAVE", "FLUXDATA",
-                    xunit="micron", errorbar=True)
-            ax3.set_title("FLUXDATA")
-            ax3.legend(fontsize=8)
-
-            plt.tight_layout()
-            safe_pyplot(st, fig, use_container_width=True)
-
+        except ValueError as exc:
+            if str(exc) == "No file selected.":
+                # Expected, frequent state right after an upload and before
+                # the user has picked anything in "Select data to use" above
+                # — not a real error, so no full traceback in the server log.
+                st.info("Select a dataset above to preview its observables.")
+                return
+            logger.exception("Observable plot failed")
+            st.warning("Could not render observable plots for the current selection.")
+            return
         except Exception:
             logger.exception("Observable plot failed")
+            st.warning("Could not render observable plots for the current selection.")
+            return
+
+        # Not every OIFITS file carries every observable — e.g. many MATISSE
+        # exports have no OI_FLUX table, so FLUXDATA is absent. Each panel is
+        # independently optional: one missing/unsupported observable must
+        # not blank out the other two, which oimodeler's own oiplot() would
+        # otherwise do since it raises before any panel is drawn.
+        fig, (ax1, ax2, ax3) = plt.subplots(
+            ncols=3, figsize=(15, 4),
+            subplot_kw={'projection': 'oimAxes'},
+        )
+        panels = (
+            (ax1, "SPAFREQ", "VIS2DATA", "cycle/mas", "VIS2", dict(color="byBaseline")),
+            (ax2, "EFF_WAVE", "T3PHI",   "micron",    "T3PHI", dict(color="byBaseline")),
+            (ax3, "EFF_WAVE", "FLUXDATA","micron",    "FLUXDATA", {}),
+        )
+        any_ok = False
+        for ax, xname, yname, xunit, title, kwargs in panels:
+            try:
+                ax.oiplot(data, xname, yname, xunit=xunit, errorbar=True, **kwargs)
+                ax.set_title(title)
+                ax.legend(fontsize=8)
+                any_ok = True
+            except Exception:
+                logger.info("Observable %s unavailable for the current selection", yname)
+                ax.set_title(f"{title} (not available)")
+                ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                        transform=ax.transAxes, color="gray")
+
+        if any_ok:
+            plt.tight_layout()
+            safe_pyplot(st, fig, use_container_width=True)
+        else:
+            plt.close(fig)
             st.warning("Could not render observable plots for the current selection.")
 
 
