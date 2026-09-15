@@ -39,6 +39,7 @@ from core.model_builder import (
 from core.fitting import random_search
 from core.results import get_result_df, update_model_from_fit, build_results_zip
 from core.code_generator import generate_fitting_code
+from core.model_export import model_to_txt
 from core.validation import num, choice, choices, InvalidInput
 from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pyplot
 
@@ -614,6 +615,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         extra_files={
             "grid_chi2map.csv": grid_csv,
             "activity_log.txt": get_log_text(),
+            **_all_models_as_txt(registry),
         },
     )
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(r['model_to_use']))[:100] or "model"
@@ -941,7 +943,10 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             "walkers_plot":  fw,
             "corner_plot":   fc,
         },
-        extra_files={"activity_log.txt": get_log_text()},
+        extra_files={
+            "activity_log.txt": get_log_text(),
+            **_all_models_as_txt(registry),
+        },
     )
     # model_to_use comes from a selectbox — its widget option list isn't
     # server-enforced, so sanitize before using it in a client-facing filename.
@@ -1023,4 +1028,15 @@ def _grid_map_to_csv(gfit, axes: list[dict]) -> str:
         chi2 = repr(float(gfit.chi2rMap[idx]))
         lines.append(",".join(coords + [chi2]))
     return "\n".join(lines)
+
+
+def _all_models_as_txt(registry) -> dict[str, str]:
+    """Every model saved this session, in the normalized .txt format
+    (core/model_export.py) importable back via Modelling > Import model —
+    bundled into every result zip so a download carries the full model
+    library, not just the one model this particular fit used."""
+    return {
+        f"models/{name}.txt": model_to_txt(model_dict, registry)
+        for name, model_dict in st.session_state.MODEL.items()
+    }
 

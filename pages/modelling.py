@@ -36,6 +36,7 @@ from core.model_builder import (
     generate_model_v2_t3phi_preview,
 )
 from core.csv_import import parse_csv_to_model
+from core.model_export import EXTERNAL_WRITER_SNIPPET
 from core.validation import num, choice, text, InvalidInput
 from components.param_editor import render_param_editor, read_all_widgets
 from components.plots import safe_pyplot
@@ -50,7 +51,7 @@ logger = logging.getLogger(__name__)
 def render() -> None:
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Basic Model",
-        "Load CSV model",
+        "Import model",
         "Interpolators",
         "Model summary",
         "Model management",
@@ -59,7 +60,7 @@ def render() -> None:
     with tab1:
         _render_basic_model()
     with tab2:
-        _render_csv_import()
+        _render_model_import()
     with tab3:
         _render_interpolators()
     with tab4:
@@ -321,64 +322,80 @@ def _render_basic_model() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tab 2 – Load CSV model
+# Tab 2 – Import model (CSV or TXT)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _render_csv_import() -> None:
+def _render_model_import() -> None:
     import pandas as pd  # noqa: PLC0415
 
     registry = get_registry()
 
-    st.markdown("##### 📂 Import a model from a CSV file")
+    st.markdown("##### 📂 Import a model from a CSV/TXT file")
 
-    csv_file = st.file_uploader(
-        "Upload a parameter CSV (results table format)",
-        type=["csv"],
-        key="csv_model_uploader",
+    model_file = st.file_uploader(
+        "Upload a parameter file (CSV or TXT — comma or tab separated)",
+        type=["csv", "txt"],
+        key="model_import_uploader",
         help=(
             "Expected columns: Parameter, Value, Min, Max, Free\n"
-            "Parameter format: c{n}_{TypeAbbr}_{param}  e.g.: c1_UD_d"
+            "Parameter format: c{n}_{TypeAbbr}_{param}  e.g.: c1_UD_d\n"
+            "A .txt file exported by this app, or by the write_model_to_txt() "
+            "snippet below, works directly."
         ),
     )
-    csv_model_name = st.text_input(
+    model_name_raw = st.text_input(
         "Name of imported model",
-        placeholder="e.g.: csv_model",
-        key="csv_model_name",
+        placeholder="e.g.: imported_model",
+        key="model_import_name",
     )
-    do_import = st.button("📥 Import & store", key="btn_csv_import")
+    do_import = st.button("📥 Import & store", key="btn_model_import")
 
-    if csv_file is None:
-        return
+    if model_file is not None:
+        try:
+            # sep=None + engine='python' auto-detects the delimiter — the
+            # same parser handles a comma-separated .csv and a
+            # tab-separated .txt (core/model_export.py's normalized
+            # format) without needing two code paths.
+            model_df = pd.read_csv(model_file, sep=None, engine="python")
+            with st.expander("Preview of loaded file", expanded=False):
+                st.dataframe(model_df, use_container_width=True)
 
-    try:
-        csv_df = pd.read_csv(csv_file)
-        with st.expander("Preview of loaded CSV", expanded=False):
-            st.dataframe(csv_df, use_container_width=True)
+            if do_import:
+                result, err_msg = parse_csv_to_model(model_df, registry)
+                if result is None:
+                    st.error(f"❌ Import error:\n\n{err_msg}")
+                else:
+                    target_name = (
+                        model_name_raw.strip()
+                        or model_file.name.rsplit(".", 1)[0]
+                    )
+                    st.session_state.MODEL[target_name] = result
+                    st.session_state.components = [
+                        dict(c) for c in result['components']
+                    ]
+                    st.session_state.active_comp_name = (
+                        result['components'][0]['name']
+                        if result['components'] else None
+                    )
+                    n_comp     = len(result['components'])
+                    comp_names = ', '.join(c['name'] for c in result['components'])
+                    st.success(
+                        f"✅ Model **{target_name}** successfully imported "
+                        f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
+                    )
+                    log_event("Model imported", f"{target_name} ({n_comp} components)")
+                    st.rerun()
+        except Exception as exc:
+            st.error(f"Cannot read file: {exc}")
 
-        if do_import:
-            result, err_msg = parse_csv_to_model(csv_df, registry)
-            if result is None:
-                st.error(f"❌ CSV import error:\n\n{err_msg}")
-            else:
-                target_name = csv_model_name.strip() or csv_file.name.replace(".csv", "")
-                st.session_state.MODEL[target_name] = result
-                st.session_state.components = [
-                    dict(c) for c in result['components']
-                ]
-                st.session_state.active_comp_name = (
-                    result['components'][0]['name']
-                    if result['components'] else None
-                )
-                n_comp     = len(result['components'])
-                comp_names = ', '.join(c['name'] for c in result['components'])
-                st.success(
-                    f"✅ Model **{target_name}** successfully imported "
-                    f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
-                )
-                log_event("Model imported from CSV", f"{target_name} ({n_comp} components)")
-                st.rerun()
-    except Exception as exc:
-        st.error(f"Cannot read CSV: {exc}")
+    with st.expander("📋 Export a model from your own oimodeler script"):
+        st.markdown(
+            "Paste this function into your own script (after building "
+            "`model = oim.oimModel(...)`) and call "
+            "`write_model_to_txt(\"your_model_name\")` to produce a "
+            ".txt file this tab can import directly."
+        )
+        st.code(EXTERNAL_WRITER_SNIPPET, language="python")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
