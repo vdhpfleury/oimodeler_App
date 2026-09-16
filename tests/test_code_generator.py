@@ -62,8 +62,8 @@ MODEL_COMPS = [
         "free_params": ["d"],
         "interpolators": {
             "f": {
-                "enabled": True, "type": "custom", "var": "wl",
-                "wl": [3e-6, 4e-6, 5e-6], "values": [0.2, 0.5, 0.8],
+                "enabled": True, "macro": "wl",
+                "kwargs": {"wl": [3e-6, 4e-6, 5e-6], "values": [0.2, 0.5, 0.8]},
             },
         },
     },

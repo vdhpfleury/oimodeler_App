@@ -59,8 +59,7 @@ class ComponentConfig:
         full.update(override or {})
         return full
 
-    def create_instance(self, oim, param_values: dict | None = None,
-                        wave_data: np.ndarray | None = None):
+    def create_instance(self, oim, param_values: dict | None = None):
         """
         Instancie le composant oimodeler.
 
@@ -68,7 +67,6 @@ class ComponentConfig:
         ----------
         oim : module oimodeler (passé en argument pour éviter l'import global)
         param_values : dict optionnel de surcharge des valeurs initiales
-        wave_data : longueurs d'onde pour les interpolateurs blackbody
         """
         full = self._full_params(param_values)
         if 'dim' in full:
@@ -78,19 +76,18 @@ class ComponentConfig:
             # as float, which numpy rejects (e.g. np.linspace(..., dim)).
             full['dim'] = int(round(full['dim']))
 
+        # Each entry is {'enabled': bool, 'macro': <oimInterp macro name>,
+        # 'kwargs': {...}} — see core/interp_registry.py. `kwargs` is
+        # already unit-converted (wl in metres, not µm) and validated by
+        # the UI/registry before it lands here, so it can be passed
+        # straight through to oim.oimInterp(). oimodeler swaps this
+        # wrapper for a real oimParamInterpolator-derived instance the
+        # first time the component reads the parameter (see
+        # oimComponent._eval: `value.type(self.params[key], **value.kwargs)`).
         for p, cfg in self.interpolators.items():
             if not cfg.get('enabled', False):
                 continue
-            if cfg.get('type') == 'blackbody':
-                wl = wave_data if wave_data is not None else np.linspace(1e-6, 5e-6, 50)
-                full[p] = oim.oimInterp('starWl', temp=cfg['temp'],
-                                        dist=cfg['dist'], lum=cfg['lum'], wl=wl)
-            else:
-                full[p] = oim.oimInterp(
-                    cfg['var'],
-                    **{cfg['var']: cfg['wl']},
-                    values=cfg['values'],
-                )
+            full[p] = oim.oimInterp(cfg['macro'], **cfg['kwargs'])
 
         instance = self.component_class(**full)
 

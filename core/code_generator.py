@@ -121,22 +121,14 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
         for p, cfg in interps.items():
             if not cfg.get("enabled", False):
                 continue
-            if cfg["type"] == "blackbody":
-                wl_var = f"wl_{vname}_{p}"
-                lines += [
-                    f"{wl_var} = np.linspace(1e-6, 5e-6, 200)",
-                    f"interp_{vname}_{p} = oim.oimInterp('starWl', "
-                    f"temp={cfg['temp']}, dist={cfg['dist']}, "
-                    f"lum={cfg['lum']}, wl={wl_var})",
-                ]
-            else:
-                wl_arr  = repr(cfg["wl"])
-                val_arr = repr(cfg["values"])
-                var_key = cfg.get("var", "wl")
-                lines += [
-                    f"interp_{vname}_{p} = oim.oimInterp('{var_key}', "
-                    f"{var_key}=np.array({wl_arr}), values=np.array({val_arr}))",
-                ]
+            macro     = cfg["macro"]
+            kwarg_str = ", ".join(
+                f"{k}=np.array({v!r})" if isinstance(v, list) else f"{k}={v!r}"
+                for k, v in cfg["kwargs"].items()
+            )
+            lines.append(
+                f"interp_{vname}_{p} = oim.oimInterp('{macro}', {kwarg_str})"
+            )
             param_str += f", {p}=interp_{vname}_{p}"
 
         lines.append(f"{vname} = oim.{comp_type}({param_str})")
