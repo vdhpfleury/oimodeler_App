@@ -93,9 +93,32 @@ class ComponentConfig:
 
         for param_name, param_obj in instance.params.items():
             short = param_name.split('_')[-1]
-            if short in self.param_names:
-                param_obj.free = short in self.free_params
-                lo, hi = self.param_ranges.get(short, (None, None))
+            if short not in self.param_names:
+                continue
+            free = short in self.free_params
+            lo, hi = self.param_ranges.get(short, (None, None))
+
+            if isinstance(param_obj, oim.oimParamInterpolator):
+                # An interpolated parameter isn't a plain oimParam anymore
+                # (it's replaced by e.g. oimParamInterpolatorWl) — setting
+                # .free/.min/.max directly on IT is a no-op for fitting:
+                # oimodeler enumerates its OWN sub-parameters (.params,
+                # e.g. one oimParam per keyframe/Gaussian/coefficient) as
+                # the actual free dimensions, and each of those inherits
+                # its free status from the *pre-interpolation* component
+                # class default (e.g. oimUD.f defaults free=True) —
+                # silently ignoring self.free_params/self.param_ranges
+                # entirely. Confirmed: every interpolated parameter was
+                # always free in MCMC regardless of the UI's free/fixed
+                # checkbox, however many walkers/steps were configured —
+                # the reported "Initial state has a large condition
+                # number" was this, not a walkers/steps setting.
+                for sub_param in param_obj.params:
+                    sub_param.free = free
+                    sub_param.min = lo
+                    sub_param.max = hi
+            else:
+                param_obj.free = free
                 param_obj.min = lo
                 param_obj.max = hi
 

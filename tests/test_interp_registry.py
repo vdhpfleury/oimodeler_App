@@ -116,6 +116,56 @@ def test_component_config_applies_interpolator_end_to_end(registry):
     assert np.all(np.isfinite(image))
 
 
+def test_interpolator_subparams_respect_free_flag_and_bounds(registry):
+    """Regression test: an interpolated parameter isn't a plain oimParam
+    anymore (it's swapped for e.g. oimParamInterpolatorWl) — its OWN
+    sub-parameters (one oimParam per keyframe/Gaussian/coefficient, the
+    ones oimodeler's getFreeParameters() actually iterates) used to
+    silently inherit the *pre-interpolation* component class's hardcoded
+    default free status (e.g. oimUD.f defaults free=True) and default
+    bounds, completely ignoring the UI's free/fixed checkbox and custom
+    range for that parameter. This made every interpolated parameter
+    always free in MCMC/grid/random-search regardless of what the user
+    configured — the concrete cause of a reported Emcee
+    "Initial state has a large condition number" failure whenever the
+    user intended an interpolated parameter to stay fixed."""
+    base_kwargs = dict(
+        component_type="oimUD", registry=registry, name="c1",
+        initial_values={"x": 0.0, "y": 0.0, "f": 1.0, "d": 2.0},
+        interpolators={
+            "f": {"enabled": True, "macro": "wl",
+                  "kwargs": {"wl": [3e-6, 5e-6], "values": [0.2, 0.8]}},
+        },
+    )
+
+    # 'f' marked NOT free -> its interpolator sub-params must all be fixed,
+    # and must NOT appear in getFreeParameters() at all.
+    fixed_cfg = ComponentConfig(
+        param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0., 1.), "d": (0.1, 5.0)},
+        free_params=["d"], **base_kwargs,
+    )
+    fixed_model = oim.oimModel(fixed_cfg.create_instance(oim))
+    free_names = set(fixed_model.getFreeParameters().keys())
+    assert not any("f_interp" in name for name in free_names)
+    for name, p in fixed_model.getParameters().items():
+        if "f_interp" in name:
+            assert p.free is False
+
+    # 'f' marked free with a custom range -> its sub-params must be free
+    # AND carry that custom range, not oimUD's default (0, 1).
+    free_cfg = ComponentConfig(
+        param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0.1, 0.9), "d": (0.1, 5.0)},
+        free_params=["f", "d"], **base_kwargs,
+    )
+    free_model = oim.oimModel(free_cfg.create_instance(oim))
+    free_params = free_model.getFreeParameters()
+    f_subparams = {k: v for k, v in free_params.items() if "f_interp" in k}
+    assert len(f_subparams) == 2
+    for p in f_subparams.values():
+        assert p.free is True
+        assert (p.min, p.max) == (0.1, 0.9)
+
+
 def test_disabled_interpolator_keeps_plain_float(registry):
     """enabled=False must NOT be swapped for an oimInterp (matches every
     other 'enabled' flag in this codebase's filter/interpolator specs)."""
