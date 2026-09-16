@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 
 from config.constants import DEFAULT_PARAM_RANGES, DEFAULT_PARAM_INIT
+from core.interp_registry import get_full_layout
 
 
 class ComponentConfig:
@@ -103,20 +104,32 @@ class ComponentConfig:
                 # (it's replaced by e.g. oimParamInterpolatorWl) — setting
                 # .free/.min/.max directly on IT is a no-op for fitting:
                 # oimodeler enumerates its OWN sub-parameters (.params,
-                # e.g. one oimParam per keyframe/Gaussian/coefficient) as
-                # the actual free dimensions, and each of those inherits
-                # its free status from the *pre-interpolation* component
-                # class default (e.g. oimUD.f defaults free=True) —
-                # silently ignoring self.free_params/self.param_ranges
-                # entirely. Confirmed: every interpolated parameter was
-                # always free in MCMC regardless of the UI's free/fixed
-                # checkbox, however many walkers/steps were configured —
-                # the reported "Initial state has a large condition
-                # number" was this, not a walkers/steps setting.
-                for sub_param in param_obj.params:
-                    sub_param.free = free
-                    sub_param.min = lo
-                    sub_param.max = hi
+                # one oimParam per keyframe/Gaussian/coefficient/...) as
+                # the actual free dimensions. Those mix different physical
+                # kinds (e.g. GaussWl's are [x0, fwhm, val0, value] —
+                # x0/fwhm are wavelengths, val0/value share the
+                # interpolated parameter's own unit), so a single shared
+                # (free, min, max) for all of them is wrong; each needs
+                # its own bounds, entered per sub-parameter in the
+                # Interpolators tab and stored in this interpolator's
+                # cfg['bounds'] = {kwarg_name: [{'free','min','max'}, ...]}
+                # (see core/interp_registry.py's get_full_layout(), which
+                # also marks the handful of sub-parameters oimodeler
+                # itself hardcodes free=False for — those are skipped
+                # here, left at oimodeler's own value, never a UI concern).
+                cfg = self.interpolators[short]
+                bounds = cfg.get('bounds', {})
+                sub_params = param_obj.params
+                idx = 0
+                for kwarg_name, count, controllable in get_full_layout(cfg['macro'], cfg['kwargs']):
+                    entries = bounds.get(kwarg_name, [])
+                    for i in range(count):
+                        if controllable and idx < len(sub_params) and i < len(entries):
+                            b = entries[i]
+                            sub_params[idx].free = b['free']
+                            sub_params[idx].min = b['min']
+                            sub_params[idx].max = b['max']
+                        idx += 1
             else:
                 param_obj.free = free
                 param_obj.min = lo

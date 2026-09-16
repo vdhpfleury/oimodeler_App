@@ -116,54 +116,121 @@ def test_component_config_applies_interpolator_end_to_end(registry):
     assert np.all(np.isfinite(image))
 
 
-def test_interpolator_subparams_respect_free_flag_and_bounds(registry):
+def test_interpolator_subparams_respect_per_element_bounds(registry):
     """Regression test: an interpolated parameter isn't a plain oimParam
-    anymore (it's swapped for e.g. oimParamInterpolatorWl) — its OWN
-    sub-parameters (one oimParam per keyframe/Gaussian/coefficient, the
-    ones oimodeler's getFreeParameters() actually iterates) used to
-    silently inherit the *pre-interpolation* component class's hardcoded
-    default free status (e.g. oimUD.f defaults free=True) and default
-    bounds, completely ignoring the UI's free/fixed checkbox and custom
-    range for that parameter. This made every interpolated parameter
-    always free in MCMC/grid/random-search regardless of what the user
-    configured — the concrete cause of a reported Emcee
-    "Initial state has a large condition number" failure whenever the
-    user intended an interpolated parameter to stay fixed."""
-    base_kwargs = dict(
-        component_type="oimUD", registry=registry, name="c1",
-        initial_values={"x": 0.0, "y": 0.0, "f": 1.0, "d": 2.0},
-        interpolators={
-            "f": {"enabled": True, "macro": "wl",
-                  "kwargs": {"wl": [3e-6, 5e-6], "values": [0.2, 0.8]}},
-        },
-    )
+    anymore (it's swapped for e.g. oimParamInterpolatorWl) — oimodeler
+    enumerates its OWN sub-parameters (one oimParam per keyframe) as the
+    actual free dimensions for fitting, and each used to silently inherit
+    the *pre-interpolation* component class's hardcoded default free
+    status (e.g. oimUD.f defaults free=True), completely ignoring
+    whatever the UI's free/fixed checkbox and range said. This made
+    every interpolated parameter always free in MCMC/grid/random-search
+    no matter what the user configured — the concrete cause of a
+    reported Emcee "Initial state has a large condition number" failure.
+    The fix stores explicit per-sub-parameter bounds in the interpolator
+    config's 'bounds' key (see core/interp_registry.py's
+    get_full_layout()) rather than reusing the base scalar parameter's
+    own free/range for every sub-parameter."""
+    def make_cfg(bounds):
+        return ComponentConfig(
+            component_type="oimUD", registry=registry, name="c1",
+            initial_values={"x": 0.0, "y": 0.0, "f": 1.0, "d": 2.0},
+            param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0., 1.), "d": (0.1, 5.0)},
+            free_params=["d"],  # 'f' itself not free — irrelevant now that it's interpolated
+            interpolators={
+                "f": {"enabled": True, "macro": "wl",
+                      "kwargs": {"wl": [3e-6, 5e-6], "values": [0.2, 0.8]},
+                      "bounds": bounds},
+            },
+        )
 
-    # 'f' marked NOT free -> its interpolator sub-params must all be fixed,
-    # and must NOT appear in getFreeParameters() at all.
-    fixed_cfg = ComponentConfig(
-        param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0., 1.), "d": (0.1, 5.0)},
-        free_params=["d"], **base_kwargs,
-    )
-    fixed_model = oim.oimModel(fixed_cfg.create_instance(oim))
-    free_names = set(fixed_model.getFreeParameters().keys())
-    assert not any("f_interp" in name for name in free_names)
+    # Both control points explicitly fixed.
+    fixed_model = oim.oimModel(make_cfg({
+        "values": [{"free": False, "min": 0.0, "max": 1.0},
+                   {"free": False, "min": 0.0, "max": 1.0}],
+    }).create_instance(oim))
+    assert not any("f_interp" in name for name in fixed_model.getFreeParameters())
     for name, p in fixed_model.getParameters().items():
         if "f_interp" in name:
             assert p.free is False
 
-    # 'f' marked free with a custom range -> its sub-params must be free
-    # AND carry that custom range, not oimUD's default (0, 1).
-    free_cfg = ComponentConfig(
-        param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0.1, 0.9), "d": (0.1, 5.0)},
-        free_params=["f", "d"], **base_kwargs,
+    # Per-element bounds DIFFER between the two control points — proves
+    # they're addressed individually, not one shared range for the pair.
+    mixed_model = oim.oimModel(make_cfg({
+        "values": [{"free": True, "min": 0.0, "max": 0.5},
+                   {"free": False, "min": 0.7, "max": 0.9}],
+    }).create_instance(oim))
+    all_params = mixed_model.getParameters()
+    interp_names = sorted(n for n in all_params if "f_interp" in n)
+    assert len(interp_names) == 2
+    p0, p1 = (all_params[n] for n in interp_names)
+    assert p0.free is True and (p0.min, p0.max) == (0.0, 0.5)
+    assert p1.free is False and (p1.min, p1.max) == (0.7, 0.9)
+    assert set(mixed_model.getFreeParameters()) & set(interp_names) == {interp_names[0]}
+
+
+def test_interpolator_mixed_unit_subparams_get_independent_bounds(registry):
+    """GaussWl's own .params is [x0, fwhm, val0, value] — x0/fwhm are
+    wavelengths (metres), val0/value share the interpolated parameter's
+    unit. A single shared bound for the whole list (the pre-per-element
+    design) would apply a flux-like [0, 1] range to a wavelength. Confirms
+    each of the 4 gets its own independent (free, min, max) and that a
+    wavelength-scale bound is never confused with a flux-scale one."""
+    cfg = ComponentConfig(
+        component_type="oimUD", registry=registry, name="c1",
+        initial_values={"x": 0.0, "y": 0.0, "f": 1.0, "d": 2.0},
+        param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0., 1.), "d": (0.1, 5.0)},
+        free_params=["d"],
+        interpolators={
+            "f": {
+                "enabled": True, "macro": "GaussWl",
+                "kwargs": {"val0": 0.0, "value": 1.0, "x0": 2.2e-6, "fwhm": 0.5e-6},
+                "bounds": {
+                    "x0":    [{"free": True, "min": 1e-6, "max": 5e-6}],
+                    "fwhm":  [{"free": False, "min": 1e-7, "max": 1e-5}],
+                    "val0":  [{"free": False, "min": 0.0, "max": 1.0}],
+                    "value": [{"free": True, "min": 0.0, "max": 1.0}],
+                },
+            },
+        },
     )
-    free_model = oim.oimModel(free_cfg.create_instance(oim))
-    free_params = free_model.getFreeParameters()
-    f_subparams = {k: v for k, v in free_params.items() if "f_interp" in k}
-    assert len(f_subparams) == 2
-    for p in f_subparams.values():
-        assert p.free is True
-        assert (p.min, p.max) == (0.1, 0.9)
+    instance = cfg.create_instance(oim)
+    all_params = oim.oimModel(instance).getParameters()
+    x0, fwhm, val0, value = instance.params["f"].params
+
+    assert (x0.free, x0.min, x0.max) == (True, 1e-6, 5e-6)
+    assert (fwhm.free, fwhm.min, fwhm.max) == (False, 1e-7, 1e-5)
+    assert (val0.free, val0.min, val0.max) == (False, 0.0, 1.0)
+    assert (value.free, value.min, value.max) == (True, 0.0, 1.0)
+
+
+def test_interpolator_noncontrollable_subparams_left_to_oimodeler(registry):
+    """powerlawWl's .params is [x0, A, p] but x0 is hardcoded free=False
+    by oimodeler itself (oimParamPowerLaw._init sets self.x0.free=False
+    directly) — no 'bounds' entry should exist for it (get_fittable_layout
+    excludes it), and applying the fix must not choke walking past it
+    positionally to reach A/p."""
+    cfg = ComponentConfig(
+        component_type="oimUD", registry=registry, name="c1",
+        initial_values={"x": 0.0, "y": 0.0, "f": 1.0, "d": 2.0},
+        param_ranges={"x": (-5., 5.), "y": (-5., 5.), "f": (0., 1.), "d": (0.1, 5.0)},
+        free_params=["d"],
+        interpolators={
+            "f": {
+                "enabled": True, "macro": "powerlawWl",
+                "kwargs": {"x0": 2e-6, "A": 1.0, "p": 1.0},
+                "bounds": {
+                    "A": [{"free": True, "min": -10.0, "max": 10.0}],
+                    "p": [{"free": False, "min": -5.0, "max": 5.0}],
+                },
+            },
+        },
+    )
+    instance = cfg.create_instance(oim)
+    x0, A, p = instance.params["f"].params
+    assert x0.free is False  # oimodeler's own hardcoded default, untouched
+    assert (A.free, A.min, A.max) == (True, -10.0, 10.0)
+    assert (p.free, p.min, p.max) == (False, -5.0, 5.0)
 
 
 def test_disabled_interpolator_keeps_plain_float(registry):

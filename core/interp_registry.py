@@ -385,3 +385,82 @@ INTERP_REGISTRY: dict[str, dict] = {
         "validate": _validate_star_wl,
     },
 }
+
+
+# ── Which of an applied interpolator's OWN kwargs become oimodeler
+# sub-parameters, in what order, and which of those are actually
+# free-fittable ───────────────────────────────────────────────────────
+# oimodeler exposes every interpolator's sub-parameters through a single
+# flat `.params` list (see oimParamInterpolator.params, built from each
+# subclass's `_getParams()`) — but that list silently MIXES parameters
+# of different physical kinds (e.g. GaussWl's `.params` is
+# `[x0, fwhm, val0, value]`: x0/fwhm are wavelengths, val0/value are the
+# interpolated parameter's own unit), and some entries in it are
+# hardcoded `free=False` by oimodeler itself (verified by building each
+# interpolator and reading back `.params[i].free`) regardless of the
+# base parameter's own free status: oimParamPowerLaw's x0,
+# oimParamLinearRangeWl's wlmin/wlmax, oimParamLinearTemplateWl's
+# f_contrib, oimParamLinearStarWl's T/R/L/dist. Applying one shared
+# (free, min, max) to the whole list — what an earlier version of this
+# app did — is wrong on both counts: it could bound a wavelength
+# (metres) by a flux parameter's [0, 1] range, and it could try to make
+# a permanently-fixed sub-parameter "free" for nothing.
+#
+# Each entry below is the FULL, ordered `.params` composition (verified
+# with inspect.getsource + live construction against the installed
+# oimodeler, not assumed) as (kwarg_name, count, controllable) triples —
+# `controllable=False` marks a slot oimodeler never lets vary, which
+# core/component.py must skip over (not zero out) when walking
+# `.params`, and the UI never renders a free/bounds control for.
+# templateWl and starWl end up with no controllable entries at all —
+# nothing either exposes is ever fittable in the installed oimodeler.
+def _keyframe_layout(kwargs: dict, keyframe_key: str) -> list[tuple[str, int, bool]]:
+    layout = []
+    if not kwargs.get("fixedRef", True):
+        layout.append((keyframe_key, len(kwargs[keyframe_key]), True))
+    layout.append(("values", len(kwargs["values"]), True))
+    return layout
+
+
+_FULL_LAYOUT_FUNCS = {
+    "wl":           lambda kw: _keyframe_layout(kw, "wl"),
+    "time":         lambda kw: _keyframe_layout(kw, "mjd"),
+    "GaussWl":      lambda kw: [("x0", 1, True), ("fwhm", 1, True), ("val0", 1, True), ("value", 1, True)],
+    "GaussTime":    lambda kw: [("x0", 1, True), ("fwhm", 1, True), ("val0", 1, True), ("value", 1, True)],
+    "mGaussWl":     lambda kw: [("val0", 1, True), ("x0", len(kw["x0"]), True),
+                                 ("fwhm", len(kw["fwhm"]), True), ("values", len(kw["values"]), True)],
+    "mGaussTime":   lambda kw: [("val0", 1, True), ("x0", len(kw["x0"]), True),
+                                 ("fwhm", len(kw["fwhm"]), True), ("values", len(kw["values"]), True)],
+    "cosTime":      lambda kw: (
+        [("T0", 1, True), ("P", 1, True)]
+        + ([("x0", 1, True)] if kw.get("x0") is not None else [])
+        + [("values", len(kw["values"]), True)]
+    ),
+    "polyWl":       lambda kw: [("coeffs", len(kw["coeffs"]), True)],
+    "polyTime":     lambda kw: [("coeffs", len(kw["coeffs"]), True)],
+    "powerlawWl":   lambda kw: [("x0", 1, False), ("A", 1, True), ("p", 1, True)],
+    "powerlawTime": lambda kw: [("x0", 1, False), ("A", 1, True), ("p", 1, True)],
+    "rangeWl":      lambda kw: [("values", len(kw["values"]), True),
+                                 ("wlmin", 1, False), ("wlmax", 1, False)],
+    "templateWl":   lambda kw: [("f_contrib", 1, False)],
+    "tempWl":       lambda kw: [("T", 1, True)],
+    "starWl":       lambda kw: [("T", 1, False)],
+}
+
+
+def get_full_layout(macro: str, kwargs: dict) -> list[tuple[str, int, bool]]:
+    """Ordered (kwarg_name, count, controllable) triples spanning oimodeler's
+    ENTIRE `.params` list for this macro+kwargs — including the slots it
+    hardcodes free=False for. Use this to walk `.params` positionally
+    (core/component.py); use get_fittable_layout() for the subset the UI
+    should offer free/bounds controls for."""
+    return _FULL_LAYOUT_FUNCS[macro](kwargs)
+
+
+def get_fittable_layout(macro: str, kwargs: dict) -> list[tuple[str, int]]:
+    """Ordered (kwarg_name, count) pairs for only the sub-parameters
+    oimodeler actually lets vary — what the UI should render a
+    free/bounds control for, one row per element (count > 1 for a
+    list-valued kwarg)."""
+    return [(name, count) for name, count, controllable in get_full_layout(macro, kwargs)
+            if controllable]
