@@ -37,7 +37,7 @@ from core.model_builder import (
 )
 from core.csv_import import parse_csv_to_model
 from core.model_export import EXTERNAL_WRITER_SNIPPET
-from core.interp_registry import INTERP_REGISTRY
+from core.interp_registry import INTERP_REGISTRY, get_fittable_layout
 from core.validation import num, choice, choices, text, InvalidInput
 from components.param_editor import render_param_editor, read_all_widgets
 from components.plots import safe_pyplot
@@ -462,7 +462,11 @@ def _render_interpolators() -> None:
                     continue
                 macro = cfg.get("macro", "?")
                 kw_summary = ", ".join(f"{k}={_format_kwarg(v)}" for k, v in cfg.get("kwargs", {}).items())
-                st.info(f"📈 **{p_name}** → `{macro}` ({kw_summary})")
+                bounds = cfg.get("bounds", {})
+                n_free = sum(e.get("free", False) for entries in bounds.values() for e in entries)
+                n_total = sum(len(entries) for entries in bounds.values())
+                free_summary = f" — {n_free}/{n_total} free" if n_total else ""
+                st.info(f"📈 **{p_name}** → `{macro}` ({kw_summary}){free_summary}")
                 if st.button(f"🗑️ Remove interpolator {p_name}",
                              key=f"del_interp_{p_name}"):
                     del interp_comp["interpolators"][p_name]
@@ -520,7 +524,9 @@ def _render_interp_picker(oim, interp_comp: dict, interp_param: str, interp_comp
     spec = INTERP_REGISTRY[macro]
     st.caption(f"`{spec['class_name']}` — {spec['description']}")
 
-    prior_kwargs = cur_interp.get("kwargs", {}) if cur_interp.get("macro") == macro else {}
+    same_macro    = cur_interp.get("macro") == macro
+    prior_kwargs  = cur_interp.get("kwargs", {}) if same_macro else {}
+    prior_bounds  = cur_interp.get("bounds", {}) if same_macro else {}
     key_prefix = f"interp__{interp_comp_name}__{interp_param}__{macro}"
 
     try:
@@ -532,6 +538,7 @@ def _render_interp_picker(oim, interp_comp: dict, interp_param: str, interp_comp
         validate = spec.get("validate")
         if validate:
             validate(kwargs)
+        bounds = _render_interp_bounds(key_prefix, macro, kwargs, spec, prior_bounds)
     except InvalidInput as exc:
         st.warning(str(exc))
         return
@@ -564,11 +571,75 @@ def _render_interp_picker(oim, interp_comp: dict, interp_param: str, interp_comp
 
     if st.button("✅ Apply interpolator", key="btn_apply_interp", use_container_width=True):
         interp_comp.setdefault("interpolators", {})[interp_param] = {
-            "enabled": True, "macro": macro, "kwargs": kwargs,
+            "enabled": True, "macro": macro, "kwargs": kwargs, "bounds": bounds,
         }
         st.success(f"✅ `{macro}` interpolator applied to **{interp_comp_name}.{interp_param}**")
         log_event("Interpolator applied", f"{interp_comp_name}.{interp_param} {macro}")
         st.rerun()
+
+
+def _render_interp_bounds(key_prefix: str, macro: str, kwargs: dict,
+                          spec: dict, prior_bounds: dict) -> dict:
+    """For each of this interpolator's actually free-fittable sub-
+    parameters (core.interp_registry.get_fittable_layout — already
+    excludes whatever oimodeler itself hardcodes free=False for, e.g.
+    powerlaw's x0 or starWl's T/R/L/dist), renders one (free, min, max)
+    row per element — per-element, not one shared bound per parameter,
+    since e.g. GaussWl's x0/fwhm (wavelengths) and val0/value (the
+    interpolated parameter's own unit) must never share a bound, and two
+    control points of the same "values" list may need different ranges.
+    Returns {kwarg_name: [{'free','min','max'}, ...]} ready to store as
+    this interpolator's 'bounds', consumed by
+    core/component.py's create_instance() via get_full_layout()."""
+    layout = get_fittable_layout(macro, kwargs)
+    if not layout:
+        return {}
+
+    st.markdown("**Free / fixed status and bounds (for fitting)**")
+    bounds: dict[str, list[dict]] = {}
+    for name, count in layout:
+        param_spec = spec["parameters"][name]
+        is_um      = param_spec["type"] in ("wl_um", "array_float_um")
+        default_lo = param_spec.get("min", 0.0)
+        default_hi = param_spec.get("max", 1.0)
+        prior_list = prior_bounds.get(name, [])
+
+        st.caption(f"{param_spec['label']}" + (f" — {count} points" if count > 1 else ""))
+        entries = []
+        n_cols = min(count, 4)
+        cols = st.columns(n_cols)
+        for i in range(count):
+            prior = prior_list[i] if i < len(prior_list) else {}
+            prior_min, prior_max = prior.get("min"), prior.get("max")
+            shown_min = prior_min * 1e6 if (is_um and prior_min is not None) else (prior_min if prior_min is not None else default_lo)
+            shown_max = prior_max * 1e6 if (is_um and prior_max is not None) else (prior_max if prior_max is not None else default_hi)
+
+            with cols[i % n_cols]:
+                if count > 1:
+                    st.caption(f"pt {i + 1}")
+                free_i = st.checkbox(
+                    "free", value=bool(prior.get("free", False)),
+                    key=f"{key_prefix}__bounds__{name}__{i}__free",
+                )
+                min_raw = st.number_input(
+                    "min", value=float(shown_min), format="%.4g",
+                    key=f"{key_prefix}__bounds__{name}__{i}__min",
+                )
+                max_raw = st.number_input(
+                    "max", value=float(shown_max), format="%.4g",
+                    key=f"{key_prefix}__bounds__{name}__{i}__max",
+                )
+            if min_raw >= max_raw:
+                raise InvalidInput(
+                    f"{param_spec['label']} pt {i + 1}: min must be smaller than max."
+                )
+            entries.append({
+                "free": free_i,
+                "min": min_raw * 1e-6 if is_um else float(min_raw),
+                "max": max_raw * 1e-6 if is_um else float(max_raw),
+            })
+        bounds[name] = entries
+    return bounds
 
 
 # Wide default preview range covering the near-IR bands the app's other
