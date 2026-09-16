@@ -19,7 +19,6 @@ from core.component import ComponentConfig
 
 def random_search(oim, data, component_configs: list[ComponentConfig],
                   n_runs: int = 100, seed: int | None = None,
-                  wave_data=None,
                   progress_callback=None,
                   status_callback=None,
                   warning_callback=None) -> tuple:
@@ -33,7 +32,6 @@ def random_search(oim, data, component_configs: list[ComponentConfig],
     component_configs : liste de ComponentConfig
     n_runs            : nombre d'itérations
     seed              : graine aléatoire (None = aléatoire)
-    wave_data         : longueurs d'onde pour les interpolateurs
     progress_callback : callable(float) pour la barre de progression [0,1]
     status_callback   : callable(str) pour les messages de statut
     warning_callback  : callable(str) pour les avertissements
@@ -55,7 +53,7 @@ def random_search(oim, data, component_configs: list[ComponentConfig],
             run_params = {}
             for cfg in component_configs:
                 rp = cfg.generate_random_params()
-                comps.append(cfg.create_instance(oim, rp, wave_data=wave_data))
+                comps.append(cfg.create_instance(oim, rp))
                 run_params[cfg.name] = rp
 
             model = oim.oimModel(*comps)

@@ -37,7 +37,8 @@ from core.model_builder import (
 )
 from core.csv_import import parse_csv_to_model
 from core.model_export import EXTERNAL_WRITER_SNIPPET
-from core.validation import num, choice, text, InvalidInput
+from core.interp_registry import INTERP_REGISTRY
+from core.validation import num, choice, choices, text, InvalidInput
 from components.param_editor import render_param_editor, read_all_widgets
 from components.plots import safe_pyplot
 
@@ -409,8 +410,10 @@ def _render_interpolators() -> None:
     st.markdown("##### Configure oimodeler interpolators")
     st.caption(
         "Assign an `oimInterp` interpolator to a parameter of a component "
-        "in an existing model. Two types: **Blackbody** (`starWl`) or "
-        "**linear** (values by wavelength)."
+        "in an existing model. Any interpolator class oimodeler provides "
+        "can be used (see the "
+        "[Parameter interpolators](https://oimodeler.readthedocs.io/en/latest/models.html#parameter-interpolators) "
+        "docs)."
     )
 
     if not st.session_state.MODEL:
@@ -447,7 +450,6 @@ def _render_interpolators() -> None:
         interp_param = st.selectbox(
             "Parameter to interpolate", interp_params_avail, key="interp_param_sel",
         )
-        cur_interp = interp_comp.get("interpolators", {}).get(interp_param, {})
 
         # ── Résumé des interpolateurs actifs ──────────────────────────────
         st.markdown("###### Active interpolators on this component")
@@ -458,163 +460,17 @@ def _render_interpolators() -> None:
             for p_name, cfg in interps.items():
                 if not cfg.get("enabled"):
                     continue
-                if cfg["type"] == "blackbody":
-                    st.success(
-                        f"🌟 **{p_name}** → Blackbody "
-                        f"T={cfg['temp']:.0f} K, d={cfg['dist']:.0f} pc, L={cfg['lum']:.2f} L☉"
-                    )
-                else:
-                    st.info(
-                        f"📈 **{p_name}** → Linear "
-                        f"({len(cfg['wl'])} points, var={cfg['var']})"
-                    )
+                macro = cfg.get("macro", "?")
+                kw_summary = ", ".join(f"{k}={_format_kwarg(v)}" for k, v in cfg.get("kwargs", {}).items())
+                st.info(f"📈 **{p_name}** → `{macro}` ({kw_summary})")
                 if st.button(f"🗑️ Remove interpolator {p_name}",
                              key=f"del_interp_{p_name}"):
                     del interp_comp["interpolators"][p_name]
                     st.rerun()
 
-
-        
     with col2:
         st.write("##### B. Select and set the interpolator type")
-
-        # ── Blackbody ─────────────────────────────────────────────────────
-        interp_type = st.radio(
-            "Interpolator type",
-            ["Blackbody (starWl)", "Linear"],
-            index=0 if cur_interp.get("type") != "custom" else 1,
-            horizontal=True,
-            key="interp_type_radio",
-        )
-
-        if interp_type == "Blackbody (starWl)":
-            st.markdown("**Blackbody parameters**")
-            bb1, bb2, bb3 = st.columns(3)
-            with bb1:
-                bb_temp = st.number_input(
-                    "Temperature (K)", value=float(cur_interp.get("temp", 5000.)),
-                    min_value=100., max_value=100000., step=100.,
-                    key="interp_bb_temp",
-                )
-            with bb2:
-                bb_dist = st.number_input(
-                    "Distance (pc)", value=float(cur_interp.get("dist", 140.)),
-                    min_value=1., max_value=1e6, step=10.,
-                    key="interp_bb_dist",
-                )
-            with bb3:
-                bb_lum = st.number_input(
-                    "Luminosity (L☉)", value=float(cur_interp.get("lum", 1.)),
-                    min_value=0.001, max_value=1e6, step=0.1,
-                    key="interp_bb_lum",
-                )
-
-            if st.button("✅ Apply blackbody interpolator",
-                         key="btn_apply_bb", use_container_width=True):
-                interp_comp.setdefault("interpolators", {})[interp_param] = {
-                    "enabled": True, "type": "blackbody",
-                    "temp": bb_temp, "dist": bb_dist, "lum": bb_lum,
-                }
-                st.success(
-                    f"✅ Blackbody interpolator applied to "
-                    f"**{interp_comp_name}.{interp_param}** "
-                    f"(T={bb_temp:.0f} K, d={bb_dist:.0f} pc, L={bb_lum:.2f} L☉)"
-                )
-                log_event(
-                    "Interpolator applied",
-                    f"{interp_comp_name}.{interp_param} blackbody "
-                    f"T={bb_temp:.0f}K d={bb_dist:.0f}pc L={bb_lum:.2f}Lsun",
-                )
-                st.rerun()  # ← FIX 1 : force le rafraîchissement des interpolateurs actifs
-
-        # ── Custom spline ──────────────────────────────────────────────────
-        else:
-            st.markdown("**Control points (wavelength → value)**")
-            st.caption(
-                "Enter the wavelengths (µm) and corresponding values. "
-                "oimodeler will interpolate between these points."
-            )
-
-            existing_wl     = cur_interp.get("wl",     [2e-6, 3e-6, 4e-6, 5e-6])
-            existing_val    = cur_interp.get("values", [0.5, 0.8, 0.6, 0.3])
-            existing_wl_um  = [w * 1e6 for w in existing_wl]
-
-            n_pts_raw = st.number_input(
-                "Number of points", min_value=2, max_value=20,
-                value=len(existing_wl_um), step=1, key="interp_n_pts",
-            )
-            # Widget bounds are cosmetic only — this directly drives a
-            # Python loop below (V4's "loop/step count" category).
-            n_pts = num(n_pts_raw, 2, 20, "Number of points", integer=True)
-
-            wl_pts  = []
-            val_pts = []
-            pt_cols = st.columns(min(int(n_pts), 5))
-            for i in range(int(n_pts)):
-                with pt_cols[i % len(pt_cols)]:
-                    st.markdown(f"**pt {i+1}**")
-                    wl_i = st.number_input(
-                        "λ (µm)",
-                        value=float(existing_wl_um[i]) if i < len(existing_wl_um) else float(1 + i),
-                        min_value=0.1, max_value=20., step=0.1, format="%.2f",
-                        key=f"interp_wl_{i}",
-                    )
-                    v_i = st.number_input(
-                        "value",
-                        value=float(existing_val[i]) if i < len(existing_val) else 0.5,
-                        format="%.4g", key=f"interp_val_{i}",
-                    )
-                    wl_pts.append(wl_i * 1e-6)
-                    val_pts.append(v_i)
-
-            interp_var = st.selectbox(
-                "Interpolation variable", ["wl"], index=0,
-                key="interp_var_sel",
-                help="Usually 'wl' for spectral dependence.",
-            )
-
-            # Aperçu de la spline
-            try:
-                interp_obj = oim.oimInterp(
-                    interp_var,
-                    **{interp_var: np.array(wl_pts)},
-                    values=np.array(val_pts),
-                )
-                wl_fine  = np.linspace(min(wl_pts), max(wl_pts), 200)
-                val_fine = np.array([interp_obj(w) for w in wl_fine])
-
-                fig_sp, ax_sp = plt.subplots(figsize=(6, 2.5))
-                ax_sp.plot(wl_fine * 1e6, val_fine, color='steelblue', lw=2, label='Spline')
-                ax_sp.scatter([w * 1e6 for w in wl_pts], val_pts,
-                              color='red', zorder=5, label='Control points')
-                ax_sp.set_xlabel("λ (µm)")
-                ax_sp.set_ylabel(interp_param)
-                ax_sp.set_title(f"Interpolation {interp_param}")
-                ax_sp.legend(fontsize=8)
-                ax_sp.grid(True, alpha=0.3)
-                plt.tight_layout()
-                safe_pyplot(st, fig_sp, use_container_width=True)
-            except Exception as exc:
-                st.caption(f"Preview unavailable: {exc}")
-
-            if st.button("✅ Apply custom interpolator",
-                         key="btn_apply_custom", use_container_width=True):  # ← FIX 2 : dans le else
-                interp_comp.setdefault("interpolators", {})[interp_param] = {
-                    "enabled": True, "type": "custom",
-                    "var": interp_var, "wl": wl_pts, "values": val_pts,
-                }
-                st.success(
-                    f"✅ Custom interpolator applied to "
-                    f"**{interp_comp_name}.{interp_param}** "
-                    f"({int(n_pts)} points, var={interp_var})"
-                )
-                log_event(
-                    "Interpolator applied",
-                    f"{interp_comp_name}.{interp_param} custom "
-                    f"({int(n_pts)} points, var={interp_var})",
-                )
-                st.rerun()  # ← FIX 1 (bis) : même correction pour le custom
-
+        _render_interp_picker(oim, interp_comp, interp_param, interp_comp_name)
 
     st.write("##### C. Save as a new model")
 
@@ -636,6 +492,171 @@ def _render_interpolators() -> None:
         st.session_state.MODEL[target] = saved
         st.success(f"✅ Model **{target}** saved with interpolators!")
         log_event("Model saved", f"{target} (with interpolators)")
+
+
+def _format_kwarg(value) -> str:
+    """Compact display of one interpolator kwarg for the active-interpolators summary."""
+    if isinstance(value, list):
+        if len(value) > 4:
+            return f"[{len(value)} values]"
+        return "[" + ", ".join(f"{v:.4g}" if isinstance(v, float) else str(v) for v in value) + "]"
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    return str(value)
+
+
+def _render_interp_picker(oim, interp_comp: dict, interp_param: str, interp_comp_name: str) -> None:
+    """Generic form driven by core/interp_registry.py: pick a macro, fill
+    in its declared parameters, preview it, then apply it to interp_param."""
+    macro_names = list(INTERP_REGISTRY.keys())
+    cur_interp  = interp_comp.get("interpolators", {}).get(interp_param, {})
+    default_idx = macro_names.index(cur_interp["macro"]) if cur_interp.get("macro") in macro_names else 0
+
+    macro = st.selectbox(
+        "Interpolator type", macro_names, index=default_idx,
+        format_func=lambda m: f"{m} — {INTERP_REGISTRY[m]['description']}",
+        key="interp_macro_sel",
+    )
+    spec = INTERP_REGISTRY[macro]
+    st.caption(f"`{spec['class_name']}` — {spec['description']}")
+
+    prior_kwargs = cur_interp.get("kwargs", {}) if cur_interp.get("macro") == macro else {}
+    key_prefix = f"interp__{interp_comp_name}__{interp_param}__{macro}"
+
+    try:
+        kwargs = {
+            name: _render_interp_param(f"{key_prefix}__{name}", name, param_spec,
+                                        prior_kwargs.get(name))
+            for name, param_spec in spec["parameters"].items()
+        }
+        validate = spec.get("validate")
+        if validate:
+            validate(kwargs)
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
+
+    # ── Live preview ────────────────────────────────────────────────────
+    try:
+        live_param = _build_preview_param(oim, macro, kwargs)
+        dependence = spec["dependence"]
+        if dependence == "wl":
+            x = np.linspace(_WL_MIN_UM_PREVIEW, _WL_MAX_UM_PREVIEW, 300) * 1e-6
+            y = np.asarray(live_param(x), dtype=float)
+            x_plot = x * 1e6
+            x_label = "λ (µm)"
+        else:
+            x = np.linspace(-1000.0, 1000.0, 300)
+            y = np.asarray(live_param(t=x), dtype=float)
+            x_plot = x
+            x_label = "MJD (relative)"
+
+        fig_sp, ax_sp = plt.subplots(figsize=(6, 2.5))
+        ax_sp.plot(x_plot, y, color='steelblue', lw=2)
+        ax_sp.set_xlabel(x_label)
+        ax_sp.set_ylabel(interp_param)
+        ax_sp.set_title(f"Preview — {macro}({interp_param})")
+        ax_sp.grid(True, alpha=0.3)
+        plt.tight_layout()
+        safe_pyplot(st, fig_sp, use_container_width=True)
+    except Exception as exc:
+        st.caption(f"Preview unavailable: {exc}")
+
+    if st.button("✅ Apply interpolator", key="btn_apply_interp", use_container_width=True):
+        interp_comp.setdefault("interpolators", {})[interp_param] = {
+            "enabled": True, "macro": macro, "kwargs": kwargs,
+        }
+        st.success(f"✅ `{macro}` interpolator applied to **{interp_comp_name}.{interp_param}**")
+        log_event("Interpolator applied", f"{interp_comp_name}.{interp_param} {macro}")
+        st.rerun()
+
+
+# Wide default preview range covering the near-IR bands the app's other
+# wavelength widgets already use (GRAVITY K-band through MATISSE N-band).
+_WL_MIN_UM_PREVIEW, _WL_MAX_UM_PREVIEW = 1.0, 13.0
+
+
+def _build_preview_param(oim, macro: str, kwargs: dict):
+    """
+    Builds a throwaway component with this interpolator on a dummy
+    parameter and returns the resulting *live* oimParamInterpolator-derived
+    instance — the only way to get a callable interpolator object, since
+    oim.oimInterp(...) alone is just a descriptor (see oimComponent._eval:
+    it swaps the wrapper for `value.type(existing_param, **value.kwargs)`
+    the first time a component reads the parameter). oimUD's diameter
+    param is used as a generic numeric host, independent of what the
+    interpolator will actually be applied to in the real model.
+    """
+    dummy = oim.oimUD(d=oim.oimInterp(macro, **kwargs))
+    return dummy.params["d"]
+
+
+def _render_interp_param(key: str, name: str, spec: dict, prior_value):
+    """Renders one interpolator parameter's widget(s) and returns its
+    validated, unit-converted value (wl in metres, not µm) ready to pass
+    straight into oim.oimInterp(macro, **kwargs)."""
+    ptype = spec["type"]
+    label = spec["label"]
+
+    if ptype == "bool":
+        default = prior_value if prior_value is not None else spec.get("default", False)
+        return st.checkbox(label, value=bool(default), key=key)
+
+    if ptype == "select":
+        options = spec["options"]
+        default = prior_value if prior_value in options else spec.get("default", options[0])
+        raw = st.selectbox(label, options, index=options.index(default), key=key)
+        return choice(raw, options, label)
+
+    if ptype == "int":
+        default = prior_value if prior_value is not None else spec.get("default", spec["min"])
+        raw = st.number_input(label, value=int(default), min_value=int(spec["min"]),
+                              max_value=int(spec["max"]), step=1, key=key)
+        return num(raw, spec["min"], spec["max"], label, integer=True)
+
+    if ptype == "float":
+        default = prior_value if prior_value is not None else spec.get("default", spec["min"])
+        raw = st.number_input(label, value=float(default), format=spec.get("format", "%.6g"), key=key)
+        return num(raw, spec["min"], spec["max"], label)
+
+    if ptype == "wl_um":
+        default_um = (prior_value * 1e6) if prior_value is not None else spec.get("default", spec["min"])
+        raw = st.number_input(f"{label}", value=float(default_um), format="%.5f", key=key)
+        value_um = num(raw, spec["min"], spec["max"], label)
+        return value_um * 1e-6
+
+    if ptype == "optional_float":
+        prior_enabled = prior_value is not None
+        use_it = st.checkbox(f"Set {label}", value=prior_enabled, key=f"{key}_use")
+        if not use_it:
+            return None
+        default = prior_value if prior_value is not None else spec["min"]
+        raw = st.number_input(label, value=float(default), key=key)
+        return num(raw, spec["min"], spec["max"], label)
+
+    if ptype in ("array_float", "array_float_um"):
+        is_um = ptype == "array_float_um"
+        if prior_value is not None:
+            display_vals = [v * 1e6 for v in prior_value] if is_um else list(prior_value)
+        else:
+            display_vals = []
+        raw_text = st.text_input(
+            f"{label} (comma-separated)", value=", ".join(f"{v:g}" for v in display_vals),
+            key=key,
+        )
+        if not raw_text.strip():
+            raise InvalidInput(f"{label}: enter at least one value.")
+        try:
+            raw_values = [float(x) for x in raw_text.split(",") if x.strip()]
+        except ValueError:
+            raise InvalidInput(f"{label}: enter comma-separated numbers.")
+        if len(raw_values) > spec.get("max_len", 200):
+            raise InvalidInput(f"{label}: too many values (max {spec.get('max_len', 200)}).")
+        validated = [num(v, spec["min"], spec["max"], label) for v in raw_values]
+        return [v * 1e-6 for v in validated] if is_um else validated
+
+    # Unreachable for every type currently declared in INTERP_REGISTRY.
+    raise AssertionError(f"Unhandled interpolator parameter type: {ptype!r}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
