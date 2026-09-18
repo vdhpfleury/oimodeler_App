@@ -35,6 +35,7 @@ from core.model_builder import (
     build_oim_model,
     decompose_model_flux,
     extract_model_image,
+    apply_normalizations,
 )
 from core.fitting import (
     random_search,
@@ -169,6 +170,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
                 component_type=c['type'], registry=registry, name=c['name'],
                 initial_values=c['initial_values'], param_ranges=c['param_ranges'],
                 free_params=c['free_params'], interpolators=c.get('interpolators', {}),
+                normalizations=c.get('normalizations', {}),
             )
             for c in model_comps
         ]
@@ -191,12 +193,14 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
                 cfg.create_instance(oim, bp.get(cfg.name, {}))
                 for cfg in configs
             ]
+            apply_normalizations(oim, configs, best_comps)
             st.session_state.best_model_comps = [
                 {'type': c['type'], 'name': c['name'],
                  'initial_values': bp.get(c['name'], c['initial_values']),
                  'param_ranges': c['param_ranges'],
                  'free_params': c['free_params'],
-                 'interpolators': c.get('interpolators', {})}
+                 'interpolators': c.get('interpolators', {}),
+                 'normalizations': c.get('normalizations', {})}
                 for c in model_comps
             ]
             st.session_state.optimization_done = True

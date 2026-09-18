@@ -104,6 +104,8 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
     lines += ["# ── 3. Build model ─────────────────────────────────────"]
     comp_var_names = []
 
+    comp_var_of = {c["name"]: f"comp{i+1}" for i, c in enumerate(model_comps)}
+
     for i, c in enumerate(model_comps):
         vname     = f"comp{i+1}"
         comp_type = c["type"]
@@ -111,11 +113,13 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             "params", c.get("params", list(c["initial_values"].keys()))
         )
         interps = c.get("interpolators", {})
+        norms   = c.get("normalizations", {})
 
         scalar_params = {
             p: c["initial_values"].get(p, 0.)
             for p in params
-            if p not in interps or not interps[p].get("enabled", False)
+            if (p not in interps or not interps[p].get("enabled", False))
+            and (p not in norms or not norms[p].get("enabled", False))
         }
         param_str = ", ".join(f"{p}={v!r}" for p, v in scalar_params.items())
 
@@ -138,6 +142,32 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
 
     comp_args = ", ".join(comp_var_names)
     lines += [f"model = oim.oimModel({comp_args})", ""]
+
+    # oim.oimParamNorm(refs, norm=...) ties a component's parameter to
+    # "norm - sum(refs)" over OTHER components' *already-built* parameter
+    # objects — it can only be assigned once every component above exists,
+    # so this comes after model construction (matching the oimodeler
+    # example this was integrated from: `pt2.params["f"] =
+    # oim.oimParamNorm(g2.params["f"])`), and before the .set() loop below
+    # since oimParamNorm has no .set() of its own.
+    norm_lines = []
+    for c in model_comps:
+        vname = comp_var_of[c["name"]]
+        for p, cfg in c.get("normalizations", {}).items():
+            if not cfg.get("enabled", False):
+                continue
+            ref_strs = [
+                f'{comp_var_of[r["component"]]}.params[{r["param"]!r}]'
+                for r in cfg.get("refs", [])
+            ]
+            norm_lines.append(
+                f'{vname}.params[{p!r}] = oim.oimParamNorm('
+                f'[{", ".join(ref_strs)}], norm={cfg.get("norm", 1.0)!r})'
+            )
+    if norm_lines:
+        lines += ["# ── Flux normalization (oimParamNorm) ───────────────────"]
+        lines += norm_lines
+        lines.append("")
 
     # ── Paramètres du modèle ──────────────────────────────────────────
     lines += [
@@ -174,8 +204,14 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             "params", c.get("params", list(c["initial_values"].keys()))
         )
         interps = c.get("interpolators", {})
+        norms   = c.get("normalizations", {})
 
         for p in params:
+            if p in norms and norms[p].get("enabled", False):
+                # oim.oimParamNorm has no .set() — it's a formula over
+                # other parameters, not a fittable value of its own (see
+                # the assignment emitted in section 3 above).
+                continue
             if p in interps and interps[p].get("enabled", False):
                 cfg = interps[p]
                 bounds = cfg.get("bounds", {})

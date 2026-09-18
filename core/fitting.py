@@ -15,6 +15,7 @@ import time
 import numpy as np
 
 from core.component import ComponentConfig
+from core.model_builder import apply_normalizations
 
 
 def random_search(oim, data, component_configs: list[ComponentConfig],
@@ -56,6 +57,7 @@ def random_search(oim, data, component_configs: list[ComponentConfig],
                 comps.append(cfg.create_instance(oim, rp))
                 run_params[cfg.name] = rp
 
+            apply_normalizations(oim, component_configs, comps)
             model = oim.oimModel(*comps)
             sim   = oim.oimSimulator(data=data, model=model)
             sim.compute(computeChi2=True, computeSimulatedData=False)

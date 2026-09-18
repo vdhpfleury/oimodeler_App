@@ -36,6 +36,15 @@ _HEADER = "Parameter\tValue\tUncertainty\tMin\tMax\tFree"
 # splits it off *before* handing the rest to pd.read_csv.
 INTERPOLATOR_SECTION_MARKER = "# OIMODELER_APP_INTERPOLATORS"
 
+# Same idea as INTERPOLATOR_SECTION_MARKER, for oim.oimParamNorm
+# normalizations (core/normalization.py): one row per normalized
+# parameter — key, norm, refs as JSON (a list of OTHER components' own
+# "c{idx}_{TypeAbbr}" key prefixes + param names, not their free-form
+# display names, so a reference stays resolvable after re-import even
+# though parse_csv_to_model() always reassigns component names to that
+# same "c{idx}_{TypeAbbr}" form regardless of what they were called here).
+NORMALIZATION_SECTION_MARKER = "# OIMODELER_APP_NORMALIZATIONS"
+
 
 def model_to_txt(model_dict: dict, registry: dict) -> str:
     """Sérialise un modèle sauvegardé (forme de session_state.MODEL[nom],
@@ -44,27 +53,49 @@ def model_to_txt(model_dict: dict, registry: dict) -> str:
     d'un vrai model.getParameters(), donc les deux sont mutuellement
     réimportables par la page Modelling.
 
-    Les paramètres interpolés (oimInterp) n'ont pas de triplet
-    (valeur, min, max) unique représentable dans ce tableau plat — ils en
-    sont donc omis, mais une section supplémentaire (voir
-    INTERPOLATOR_SECTION_MARKER) enregistre pour chacun son macro
-    d'interpolation, ses kwargs et ses bornes par élément, afin que
-    core.csv_import puisse les reconstruire à l'import plutôt que de les
+    Les paramètres interpolés (oimInterp) ou normalisés (oimParamNorm)
+    n'ont pas de triplet (valeur, min, max) unique représentable dans ce
+    tableau plat — ils en sont donc omis, mais une section supplémentaire
+    par mécanisme (voir INTERPOLATOR_SECTION_MARKER /
+    NORMALIZATION_SECTION_MARKER) enregistre de quoi les reconstruire,
+    afin que core.csv_import les recolle à l'import plutôt que de les
     perdre silencieusement.
     """
+    components = model_dict.get('components', [])
+
+    def _shortname(comp_type: str) -> str:
+        comp_cls = registry.get(comp_type, {}).get('class')
+        return getattr(comp_cls, 'shortname', comp_type) if comp_cls else comp_type
+
+    key_prefix_of = {
+        c['name']: f"c{i+1}_{_shortname(c['type'])}"
+        for i, c in enumerate(components)
+    }
+
     lines = [_HEADER]
     interp_lines = []
-    for i, c in enumerate(model_dict.get('components', [])):
-        comp_type = c['type']
-        comp_cls  = registry.get(comp_type, {}).get('class')
-        shortname = getattr(comp_cls, 'shortname', comp_type) if comp_cls else comp_type
-        params    = registry.get(comp_type, {}).get(
+    norm_lines = []
+    for c in components:
+        prefix = key_prefix_of[c['name']]
+        params = registry.get(c['type'], {}).get(
             'params', c.get('params', list(c['initial_values'].keys()))
         )
         interps = c.get('interpolators', {})
+        norms   = c.get('normalizations', {})
 
         for p in params:
-            key = f"c{i+1}_{shortname}_{p}"
+            key = f"{prefix}_{p}"
+            if p in norms and norms[p].get('enabled', False):
+                cfg = norms[p]
+                refs = [
+                    {"component": key_prefix_of.get(r['component'], r['component']),
+                     "param": r['param']}
+                    for r in cfg.get('refs', [])
+                ]
+                norm_lines.append(
+                    f"{key}\t{cfg.get('norm', 1.0)!r}\t{json.dumps(refs)}"
+                )
+                continue
             if p in interps and interps[p].get('enabled', False):
                 cfg = interps[p]
                 interp_lines.append(
@@ -80,6 +111,8 @@ def model_to_txt(model_dict: dict, registry: dict) -> str:
     out = "\n".join(lines) + "\n"
     if interp_lines:
         out += "\n" + INTERPOLATOR_SECTION_MARKER + "\n" + "\n".join(interp_lines) + "\n"
+    if norm_lines:
+        out += "\n" + NORMALIZATION_SECTION_MARKER + "\n" + "\n".join(norm_lines) + "\n"
     return out
 
 
@@ -96,6 +129,13 @@ def write_model_to_txt(model_name):
     with open(f"{model_name}.txt", "w") as f:
         f.write("Parameter\\tValue\\tUncertainty\\tMin\\tMax\\tFree\\n")
         for key, p in params.items():
+            if not hasattr(p, "value"):
+                # A derived parameter (e.g. oim.oimParamNorm) has no
+                # independent value/bounds of its own — this plain format
+                # has no way to represent it, so it's skipped rather than
+                # crashing on the missing attribute. Reconfigure it after
+                # import in the app's Normalization tab.
+                continue
             # float(...) first: oimParam.min/max are numpy scalars (e.g.
             # numpy.float16), whose own repr (numpy>=2.0) prints as
             # "np.float16(-inf)" instead of a plain, re-parseable "-inf".

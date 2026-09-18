@@ -11,7 +11,7 @@ import re
 import pandas as pd
 
 from config.constants import DEFAULT_PARAM_RANGES, DEFAULT_PARAM_INIT, SHORT_TO_OIM
-from core.model_export import INTERPOLATOR_SECTION_MARKER
+from core.model_export import INTERPOLATOR_SECTION_MARKER, NORMALIZATION_SECTION_MARKER
 
 # Matches the "..._interpN" suffix oimModel.getParameters() gives an
 # interpolated parameter's sub-parameters (see core/interp_registry.py).
@@ -120,8 +120,69 @@ def parse_interpolator_section(section_text: str) -> dict[tuple[int, str], dict]
     return result
 
 
+def split_normalization_section(raw_text: str) -> tuple[str, str]:
+    """Sépare un fichier modèle TXT en (reste, section_normalisations).
+
+    NORMALIZATION_SECTION_MARKER apparaît toujours après la section
+    interpolateurs si elle existe (voir model_to_txt()), donc ce split
+    doit s'appliquer AVANT split_interpolator_section() sur le texte brut
+    pour isoler proprement les deux sections quel que soit lequel des deux
+    marqueurs est présent.
+    """
+    if NORMALIZATION_SECTION_MARKER not in raw_text:
+        return raw_text, ""
+    main, _, rest = raw_text.partition(NORMALIZATION_SECTION_MARKER)
+    return main, rest
+
+
+def parse_normalization_section(section_text: str) -> dict[tuple[int, str], dict]:
+    """Parse la section NORMALIZATION_SECTION_MARKER (voir model_to_txt()).
+
+    Une ligne par paramètre normalisé : "c{idx}_{TypeAbbr}_{param}\tnorm\t
+    refs_json", où refs_json est une liste de {"component": "c{ref_idx}_
+    {RefTypeAbbr}", "param": ...} — déjà dans le même format "c{idx}_
+    {TypeAbbr}" que parse_csv_to_model() assigne comme nom de composant à
+    l'import, donc directement utilisable comme référence sans traduction
+    supplémentaire. Retourne {(comp_idx, param_name): {'enabled': True,
+    'norm':..., 'refs':...}}, indexé comme parse_interpolator_section().
+    """
+    result: dict[tuple[int, str], dict] = {}
+    for line in section_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split('\t')
+        if len(parts) < 3:
+            continue
+        key, norm_str, refs_json = parts[0], parts[1], parts[2]
+        key_parts = key.split('_')
+        if len(key_parts) < 3:
+            continue
+        try:
+            comp_idx = int(key_parts[0][1:])
+            norm_val = float(norm_str)
+        except ValueError:
+            continue
+        param_name = '_'.join(key_parts[2:])
+        try:
+            refs_raw = json.loads(refs_json)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(refs_raw, list):
+            continue
+        refs = [
+            {"component": r.get("component"), "param": r.get("param")}
+            for r in refs_raw if isinstance(r, dict)
+        ]
+        result[(comp_idx, param_name)] = {
+            'enabled': True, 'norm': norm_val, 'refs': refs,
+        }
+    return result
+
+
 def parse_csv_to_model(
     df: pd.DataFrame, registry: dict, interp_rows: dict | None = None,
+    norm_rows: dict | None = None,
 ) -> tuple[dict | None, str, list[str]]:
     """
     Convertit un DataFrame CSV en structure de modèle compatible session_state.MODEL.
@@ -139,6 +200,11 @@ def parse_csv_to_model(
     ces clés, ComponentConfig.create_instance() ne les utilisant de toute
     façon jamais pour un paramètre interpolé — seul cfg['bounds'] compte).
 
+    norm_rows : sortie de parse_normalization_section(), ou None — même
+    principe pour components[i]['normalizations'] (oim.oimParamNorm —
+    voir core/normalization.py), appliqué au niveau du modèle complet
+    (core/model_builder.py's build_oim_model()) plutôt que par composant.
+
     Retourne (model_dict, "", warnings) en cas de succès, ou
     (None, message_erreur, []) en cas d'échec. `warnings` signale les
     lignes "..._interpN" rencontrées SANS section d'interpolateurs
@@ -148,6 +214,7 @@ def parse_csv_to_model(
     plutôt que silencieusement mal assignée à un paramètre homonyme.
     """
     interp_rows = interp_rows or {}
+    norm_rows   = norm_rows or {}
     # ── Normalisation des noms de colonnes ────────────────────────────
     rename_map = {}
     for col in df.columns:
@@ -229,13 +296,20 @@ def parse_csv_to_model(
                 f"Recognized types: {', '.join(SHORT_TO_OIM.keys())}"
             ), []
 
-        param_names   = registry[oim_type]['params']
-        init_values   = {}
-        param_ranges  = {}
-        free_params   = []
-        interpolators = {}
+        param_names    = registry[oim_type]['params']
+        init_values    = {}
+        param_ranges   = {}
+        free_params    = []
+        interpolators  = {}
+        normalizations = {}
 
         for p in param_names:
+            nr = norm_rows.get((idx, p))
+            if nr is not None:
+                normalizations[p] = nr
+                init_values[p]  = DEFAULT_PARAM_INIT.get(p, 0.)
+                param_ranges[p] = DEFAULT_PARAM_RANGES.get(p, (0., 100.))
+                continue
             ir = interp_rows.get((idx, p))
             if ir is not None:
                 interpolators[p] = ir
@@ -279,13 +353,14 @@ def parse_csv_to_model(
             )
 
         components.append({
-            'type':           oim_type,
-            'name':           f"c{idx}_{type_abbr}",
-            'params':         param_names.copy(),
-            'initial_values': init_values,
-            'param_ranges':   param_ranges,
-            'free_params':    free_params,
-            'interpolators':  interpolators,
+            'type':            oim_type,
+            'name':            f"c{idx}_{type_abbr}",
+            'params':          param_names.copy(),
+            'initial_values':  init_values,
+            'param_ranges':    param_ranges,
+            'free_params':     free_params,
+            'interpolators':   interpolators,
+            'normalizations':  normalizations,
         })
 
     if not components:
