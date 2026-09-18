@@ -23,6 +23,7 @@ class ComponentConfig:
         param_ranges: dict | None = None,
         free_params: list | None = None,
         interpolators: dict | None = None,
+        normalizations: dict | None = None,
     ):
         if component_type not in registry:
             raise ValueError(f"Unknown component type: {component_type}")
@@ -33,6 +34,14 @@ class ComponentConfig:
         self.param_names     = registry[component_type]['params']
         self.initial_values  = initial_values or {}
         self.interpolators   = interpolators or {}
+        # Normalizations (oim.oimParamNorm) are applied at the MODEL level
+        # (core/model_builder.py's build_oim_model()), once every
+        # component instance exists — they reference OTHER components'
+        # already-built parameter objects directly, unlike interpolators
+        # which are self-contained per component. Stored here only so
+        # create_instance()'s callers (build_oim_model) can read it back
+        # per component; create_instance() itself never touches it.
+        self.normalizations  = normalizations or {}
         self.param_ranges = {
             p: (
                 param_ranges.get(p)
@@ -96,6 +105,13 @@ class ComponentConfig:
             short = param_name.split('_')[-1]
             if short not in self.param_names:
                 continue
+            if self.normalizations.get(short, {}).get('enabled', False):
+                # Applied at the model level instead (build_oim_model()):
+                # oim.oimParamNorm references OTHER components' already-
+                # built parameter objects, which don't exist yet here —
+                # whatever free/min/max is set below would just be
+                # discarded the moment that replacement happens.
+                continue
             free = short in self.free_params
             lo, hi = self.param_ranges.get(short, (None, None))
 
@@ -142,6 +158,7 @@ class ComponentConfig:
             p: np.random.uniform(*self.param_ranges[p])
             for p in self.free_params
             if not (p in self.interpolators and self.interpolators[p].get('enabled', False))
+            and not (p in self.normalizations and self.normalizations[p].get('enabled', False))
         }
 
 
@@ -158,6 +175,7 @@ def make_comp_dict(comp_type: str, comp_name: str, registry: dict) -> dict:
         'param_ranges':   {p: DEFAULT_PARAM_RANGES.get(p, (0., 100.)) for p in params},
         'free_params':    [p for p in params if p not in ('x', 'y')],
         'interpolators':  {},
+        'normalizations': {},
     }
 
 

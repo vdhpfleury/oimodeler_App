@@ -11,6 +11,40 @@ import matplotlib.pyplot as plt
 from core.component import ComponentConfig
 
 
+def apply_normalizations(oim, configs: list[ComponentConfig], instances: list) -> None:
+    """Applies each ComponentConfig's normalizations (oim.oimParamNorm —
+    see core/normalization.py) to the matching already-built instance,
+    once every instance in `configs`/`instances` (same order) exists.
+
+    oim.oimParamNorm(refs, norm=...) ties a component's parameter to
+    "norm - sum(refs)", where refs are OTHER components' *live* parameter
+    objects — it can only be built at this point, unlike interpolators
+    (self-contained per component, applied inside create_instance()).
+    Shared by build_oim_model() and core/fitting.py's random_search(),
+    which both build one instance per ComponentConfig before wrapping
+    them in an oimModel.
+    """
+    name_to_instance = {cfg.name: inst for cfg, inst in zip(configs, instances)}
+    for cfg, inst in zip(configs, instances):
+        for param_name, ncfg in cfg.normalizations.items():
+            if not ncfg.get('enabled', False):
+                continue
+            ref_params = []
+            for ref in ncfg.get('refs', []):
+                ref_inst = name_to_instance.get(ref['component'])
+                if ref_inst is None or ref['param'] not in ref_inst.params:
+                    raise ValueError(
+                        f"Normalization on {cfg.name!r}.{param_name!r} references "
+                        f"{ref['component']!r}.{ref['param']!r}, which no longer "
+                        f"exists in this model — reconfigure it in the "
+                        f"Normalization tab."
+                    )
+                ref_params.append(ref_inst.params[ref['param']])
+            inst.params[param_name] = oim.oimParamNorm(
+                ref_params, norm=ncfg.get('norm', 1.0)
+            )
+
+
 def build_oim_model(oim, registry: dict, comp_list: list):
     """
     Instancie un oimModel à partir d'une liste de dicts de composants.
@@ -21,7 +55,7 @@ def build_oim_model(oim, registry: dict, comp_list: list):
     if not comp_list:
         return None
 
-    instances = [
+    configs = [
         ComponentConfig(
             component_type=c['type'],
             registry=registry,
@@ -30,9 +64,13 @@ def build_oim_model(oim, registry: dict, comp_list: list):
             param_ranges=c['param_ranges'],
             free_params=c['free_params'],
             interpolators=c.get('interpolators', {}),
-        ).create_instance(oim)
+            normalizations=c.get('normalizations', {}),
+        )
         for c in comp_list
     ]
+    instances = [cfg.create_instance(oim) for cfg in configs]
+    apply_normalizations(oim, configs, instances)
+
     return oim.oimModel(*instances)
 
 

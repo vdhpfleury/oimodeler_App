@@ -5,9 +5,21 @@ Logique pure – aucune dépendance Streamlit.
 """
 from __future__ import annotations
 
+import json
+import re
+
 import pandas as pd
 
 from config.constants import DEFAULT_PARAM_RANGES, DEFAULT_PARAM_INIT, SHORT_TO_OIM
+from core.model_export import INTERPOLATOR_SECTION_MARKER, NORMALIZATION_SECTION_MARKER
+
+# Matches the "..._interpN" suffix oimModel.getParameters() gives an
+# interpolated parameter's sub-parameters (see core/interp_registry.py).
+# Used only to detect — and warn about, rather than silently drop — rows
+# from a file that has no INTERPOLATOR_SECTION_MARKER section (typically
+# one written by EXTERNAL_WRITER_SNIPPET from a real model.getParameters(),
+# which flattens interpolators with no macro/kwargs/bounds attached).
+_INTERP_SUFFIX_RE = re.compile(r'^(.*)_interp\d+$')
 
 
 def _build_shortname_map(registry: dict) -> dict[str, str]:
@@ -58,7 +70,120 @@ def _resolve_comp_type(registry: dict, abbreviation: str) -> str | None:
     return None
 
 
-def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, str]:
+def split_interpolator_section(raw_text: str) -> tuple[str, str]:
+    """Sépare un fichier modèle TXT en (tableau_plat, section_interpolateurs).
+
+    Si INTERPOLATOR_SECTION_MARKER est absent (CSV/TXT ordinaire, ou fichier
+    produit par EXTERNAL_WRITER_SNIPPET), retourne (raw_text, "") — le
+    tableau plat est alors le fichier entier, comportement inchangé.
+    """
+    if INTERPOLATOR_SECTION_MARKER not in raw_text:
+        return raw_text, ""
+    main, _, rest = raw_text.partition(INTERPOLATOR_SECTION_MARKER)
+    return main, rest
+
+
+def parse_interpolator_section(section_text: str) -> dict[tuple[int, str], dict]:
+    """Parse la section INTERPOLATOR_SECTION_MARKER (voir model_to_txt()).
+
+    Une ligne par paramètre interpolé : "c{idx}_{TypeAbbr}_{param}\tmacro\t
+    kwargs_json\tbounds_json". Retourne {(comp_idx, param_name): {'enabled':
+    True, 'macro':..., 'kwargs':..., 'bounds':...}}, indexé exactement comme
+    les clés du tableau plat pour que parse_csv_to_model() les recolle au
+    bon composant/paramètre.
+    """
+    result: dict[tuple[int, str], dict] = {}
+    for line in section_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split('\t')
+        if len(parts) < 4:
+            continue
+        key, macro, kwargs_json, bounds_json = parts[0], parts[1], parts[2], parts[3]
+        key_parts = key.split('_')
+        if len(key_parts) < 3:
+            continue
+        try:
+            comp_idx = int(key_parts[0][1:])
+        except ValueError:
+            continue
+        param_name = '_'.join(key_parts[2:])
+        try:
+            kwargs = json.loads(kwargs_json)
+            bounds = json.loads(bounds_json)
+        except json.JSONDecodeError:
+            continue
+        result[(comp_idx, param_name)] = {
+            'enabled': True, 'macro': macro, 'kwargs': kwargs, 'bounds': bounds,
+        }
+    return result
+
+
+def split_normalization_section(raw_text: str) -> tuple[str, str]:
+    """Sépare un fichier modèle TXT en (reste, section_normalisations).
+
+    NORMALIZATION_SECTION_MARKER apparaît toujours après la section
+    interpolateurs si elle existe (voir model_to_txt()), donc ce split
+    doit s'appliquer AVANT split_interpolator_section() sur le texte brut
+    pour isoler proprement les deux sections quel que soit lequel des deux
+    marqueurs est présent.
+    """
+    if NORMALIZATION_SECTION_MARKER not in raw_text:
+        return raw_text, ""
+    main, _, rest = raw_text.partition(NORMALIZATION_SECTION_MARKER)
+    return main, rest
+
+
+def parse_normalization_section(section_text: str) -> dict[tuple[int, str], dict]:
+    """Parse la section NORMALIZATION_SECTION_MARKER (voir model_to_txt()).
+
+    Une ligne par paramètre normalisé : "c{idx}_{TypeAbbr}_{param}\tnorm\t
+    refs_json", où refs_json est une liste de {"component": "c{ref_idx}_
+    {RefTypeAbbr}", "param": ...} — déjà dans le même format "c{idx}_
+    {TypeAbbr}" que parse_csv_to_model() assigne comme nom de composant à
+    l'import, donc directement utilisable comme référence sans traduction
+    supplémentaire. Retourne {(comp_idx, param_name): {'enabled': True,
+    'norm':..., 'refs':...}}, indexé comme parse_interpolator_section().
+    """
+    result: dict[tuple[int, str], dict] = {}
+    for line in section_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split('\t')
+        if len(parts) < 3:
+            continue
+        key, norm_str, refs_json = parts[0], parts[1], parts[2]
+        key_parts = key.split('_')
+        if len(key_parts) < 3:
+            continue
+        try:
+            comp_idx = int(key_parts[0][1:])
+            norm_val = float(norm_str)
+        except ValueError:
+            continue
+        param_name = '_'.join(key_parts[2:])
+        try:
+            refs_raw = json.loads(refs_json)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(refs_raw, list):
+            continue
+        refs = [
+            {"component": r.get("component"), "param": r.get("param")}
+            for r in refs_raw if isinstance(r, dict)
+        ]
+        result[(comp_idx, param_name)] = {
+            'enabled': True, 'norm': norm_val, 'refs': refs,
+        }
+    return result
+
+
+def parse_csv_to_model(
+    df: pd.DataFrame, registry: dict, interp_rows: dict | None = None,
+    norm_rows: dict | None = None,
+) -> tuple[dict | None, str, list[str]]:
     """
     Convertit un DataFrame CSV en structure de modèle compatible session_state.MODEL.
 
@@ -68,8 +193,28 @@ def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, s
     Format du champ Parameter : c{index}_{TypeAbbr}_{param}
     Exemple : c1_Pt_f, c2_EG_fwhm, c3_UD_d
 
-    Retourne (model_dict, "") en cas de succès, ou (None, message_erreur).
+    interp_rows : sortie de parse_interpolator_section(), ou None — les
+    paramètres interpolés qu'il désigne sont reconstruits dans
+    components[i]['interpolators'] plutôt que dans initial_values/
+    param_ranges/free_params (qui restent à leurs valeurs par défaut pour
+    ces clés, ComponentConfig.create_instance() ne les utilisant de toute
+    façon jamais pour un paramètre interpolé — seul cfg['bounds'] compte).
+
+    norm_rows : sortie de parse_normalization_section(), ou None — même
+    principe pour components[i]['normalizations'] (oim.oimParamNorm —
+    voir core/normalization.py), appliqué au niveau du modèle complet
+    (core/model_builder.py's build_oim_model()) plutôt que par composant.
+
+    Retourne (model_dict, "", warnings) en cas de succès, ou
+    (None, message_erreur, []) en cas d'échec. `warnings` signale les
+    lignes "..._interpN" rencontrées SANS section d'interpolateurs
+    correspondante (typiquement un fichier écrit par
+    EXTERNAL_WRITER_SNIPPET, qui aplatit les interpolateurs sans laisser
+    de trace de leur macro/kwargs/bornes) — leur valeur brute est ignorée
+    plutôt que silencieusement mal assignée à un paramètre homonyme.
     """
+    interp_rows = interp_rows or {}
+    norm_rows   = norm_rows or {}
     # ── Normalisation des noms de colonnes ────────────────────────────
     rename_map = {}
     for col in df.columns:
@@ -93,7 +238,7 @@ def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, s
     required = {'Paramètre', 'Valeur', 'Min', 'Max', 'Libre'}
     missing  = required - set(df.columns)
     if missing:
-        return None, f"Missing columns in CSV: {', '.join(missing)}"
+        return None, f"Missing columns in CSV: {', '.join(missing)}", []
 
     # ── Parsing ligne par ligne ───────────────────────────────────────
     comp_data: dict[int, dict] = {}
@@ -105,11 +250,11 @@ def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, s
             return None, (
                 f"Invalid parameter format: « {param_full} »\n"
                 f"Expected: c{{n}}_{{Type}}_{{param}}  (e.g.: c1_UD_d)"
-            )
+            ), []
         try:
             comp_idx = int(parts[0][1:])
         except ValueError:
-            return None, f"Unreadable component index in « {param_full} »"
+            return None, f"Unreadable component index in « {param_full} »", []
 
         type_abbr  = parts[1]
         param_name = '_'.join(parts[2:])
@@ -140,6 +285,7 @@ def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, s
 
     # ── Construction de la liste de composants ────────────────────────
     components = []
+    warnings: list[str] = []
     for idx in sorted(comp_data.keys()):
         cd        = comp_data[idx]
         type_abbr = cd['type_abbr']
@@ -148,14 +294,28 @@ def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, s
             return None, (
                 f"Unknown component type: « {type_abbr} » (component c{idx}).\n"
                 f"Recognized types: {', '.join(SHORT_TO_OIM.keys())}"
-            )
+            ), []
 
-        param_names  = registry[oim_type]['params']
-        init_values  = {}
-        param_ranges = {}
-        free_params  = []
+        param_names    = registry[oim_type]['params']
+        init_values    = {}
+        param_ranges   = {}
+        free_params    = []
+        interpolators  = {}
+        normalizations = {}
 
         for p in param_names:
+            nr = norm_rows.get((idx, p))
+            if nr is not None:
+                normalizations[p] = nr
+                init_values[p]  = DEFAULT_PARAM_INIT.get(p, 0.)
+                param_ranges[p] = DEFAULT_PARAM_RANGES.get(p, (0., 100.))
+                continue
+            ir = interp_rows.get((idx, p))
+            if ir is not None:
+                interpolators[p] = ir
+                init_values[p]  = DEFAULT_PARAM_INIT.get(p, 0.)
+                param_ranges[p] = DEFAULT_PARAM_RANGES.get(p, (0., 100.))
+                continue
             if p in cd['params']:
                 pd_row = cd['params'][p]
                 init_values[p]  = pd_row['value']
@@ -166,17 +326,44 @@ def parse_csv_to_model(df: pd.DataFrame, registry: dict) -> tuple[dict | None, s
                 init_values[p]  = DEFAULT_PARAM_INIT.get(p, 0.)
                 param_ranges[p] = DEFAULT_PARAM_RANGES.get(p, (0., 100.))
 
+        # Rows named "{base}_interpN" that DIDN'T resolve through
+        # interp_rows above (no INTERPOLATOR_SECTION_MARKER section for
+        # them — e.g. a file written by EXTERNAL_WRITER_SNIPPET from a
+        # real model.getParameters(), which flattens interpolators with
+        # no macro/kwargs/bounds attached) are otherwise silently dropped:
+        # `param_name` never matches any real `p` in param_names. Warn
+        # instead, naming the component/parameter, rather than pretending
+        # the import fully succeeded.
+        orphaned_bases = set()
+        for raw_name in cd['params']:
+            if raw_name in param_names:
+                continue
+            m = _INTERP_SUFFIX_RE.match(raw_name)
+            if m and m.group(1) in param_names:
+                orphaned_bases.add(m.group(1))
+        for base in sorted(orphaned_bases):
+            warnings.append(
+                f"Component c{idx} ({type_abbr}): parameter "
+                f"'{base}' looks interpolated in the source file "
+                f"(found '{base}_interpN' rows), but this file has no "
+                f"interpolator metadata section — its value was "
+                f"ignored. Re-export with this app's model export, or "
+                f"configure an interpolator for '{base}' on this "
+                f"component manually after import."
+            )
+
         components.append({
-            'type':           oim_type,
-            'name':           f"c{idx}_{type_abbr}",
-            'params':         param_names.copy(),
-            'initial_values': init_values,
-            'param_ranges':   param_ranges,
-            'free_params':    free_params,
-            'interpolators':  {},
+            'type':            oim_type,
+            'name':            f"c{idx}_{type_abbr}",
+            'params':          param_names.copy(),
+            'initial_values':  init_values,
+            'param_ranges':    param_ranges,
+            'free_params':     free_params,
+            'interpolators':   interpolators,
+            'normalizations':  normalizations,
         })
 
     if not components:
-        return None, "No component found in the CSV."
+        return None, "No component found in the CSV.", []
 
-    return {'components': components}, ""
+    return {'components': components}, "", warnings

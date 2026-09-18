@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 
 from config.constants import DEFAULT_PARAM_RANGES
+from core.interp_registry import get_full_layout
 
 import locale
 from datetime import datetime
@@ -103,6 +104,8 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
     lines += ["# ── 3. Build model ─────────────────────────────────────"]
     comp_var_names = []
 
+    comp_var_of = {c["name"]: f"comp{i+1}" for i, c in enumerate(model_comps)}
+
     for i, c in enumerate(model_comps):
         vname     = f"comp{i+1}"
         comp_type = c["type"]
@@ -110,11 +113,13 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             "params", c.get("params", list(c["initial_values"].keys()))
         )
         interps = c.get("interpolators", {})
+        norms   = c.get("normalizations", {})
 
         scalar_params = {
             p: c["initial_values"].get(p, 0.)
             for p in params
-            if p not in interps or not interps[p].get("enabled", False)
+            if (p not in interps or not interps[p].get("enabled", False))
+            and (p not in norms or not norms[p].get("enabled", False))
         }
         param_str = ", ".join(f"{p}={v!r}" for p, v in scalar_params.items())
 
@@ -138,6 +143,32 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
     comp_args = ", ".join(comp_var_names)
     lines += [f"model = oim.oimModel({comp_args})", ""]
 
+    # oim.oimParamNorm(refs, norm=...) ties a component's parameter to
+    # "norm - sum(refs)" over OTHER components' *already-built* parameter
+    # objects — it can only be assigned once every component above exists,
+    # so this comes after model construction (matching the oimodeler
+    # example this was integrated from: `pt2.params["f"] =
+    # oim.oimParamNorm(g2.params["f"])`), and before the .set() loop below
+    # since oimParamNorm has no .set() of its own.
+    norm_lines = []
+    for c in model_comps:
+        vname = comp_var_of[c["name"]]
+        for p, cfg in c.get("normalizations", {}).items():
+            if not cfg.get("enabled", False):
+                continue
+            ref_strs = [
+                f'{comp_var_of[r["component"]]}.params[{r["param"]!r}]'
+                for r in cfg.get("refs", [])
+            ]
+            norm_lines.append(
+                f'{vname}.params[{p!r}] = oim.oimParamNorm('
+                f'[{", ".join(ref_strs)}], norm={cfg.get("norm", 1.0)!r})'
+            )
+    if norm_lines:
+        lines += ["# ── Flux normalization (oimParamNorm) ───────────────────"]
+        lines += norm_lines
+        lines.append("")
+
     # ── Paramètres du modèle ──────────────────────────────────────────
     lines += [
         "# ── 4. Set model parameters ────────────────────────────────",
@@ -154,14 +185,16 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
     # assuming getParameters().keys() enumerates in the same order/count as
     # the registry's declared `params` list.
     #
-    # Interpolated parameters (oimInterp, built in section 3 above) are
-    # intentionally skipped here: oimodeler expands a single interpolated
-    # parameter into its own sub-parameters (keyed "..._{param}_interp1",
-    # "..._interp2", ...) whose count depends on the interpolator (e.g. the
-    # number of wavelength control points) and isn't known until the
-    # interpolator itself is built. There is no single UI-configured
-    # (min, max, free) triple that applies to them positionally or by name,
-    # so they keep the bounds/free status oimInterp gives them.
+    # Interpolated parameters (oimInterp, built in section 3 above) expand
+    # into their own sub-parameters once oimodeler swaps the oimInterp
+    # macro for a real oimParamInterpolator instance, keyed
+    # "..._{param}_interp1", "..._interp2", ... — N is a 1-based sequential
+    # index over the interpolator's FULL sub-parameter composition
+    # (get_full_layout(), same registry core/component.py's
+    # ComponentConfig.create_instance() uses to apply these bounds live).
+    # Non-controllable slots oimodeler itself hardcodes free=False for
+    # (e.g. powerlaw's x0, rangeWl's wlmin/wlmax) still occupy an index
+    # but never get an entry here, mirroring create_instance() exactly.
     param_settings = {}
     for i, c in enumerate(model_comps):
         comp_type = c["type"]
@@ -171,9 +204,30 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             "params", c.get("params", list(c["initial_values"].keys()))
         )
         interps = c.get("interpolators", {})
+        norms   = c.get("normalizations", {})
 
         for p in params:
+            if p in norms and norms[p].get("enabled", False):
+                # oim.oimParamNorm has no .set() — it's a formula over
+                # other parameters, not a fittable value of its own (see
+                # the assignment emitted in section 3 above).
+                continue
             if p in interps and interps[p].get("enabled", False):
+                cfg = interps[p]
+                bounds = cfg.get("bounds", {})
+                idx = 0
+                for kwarg_name, count, controllable in get_full_layout(cfg["macro"], cfg["kwargs"]):
+                    entries = bounds.get(kwarg_name, [])
+                    for j in range(count):
+                        idx += 1
+                        if controllable and j < len(entries):
+                            b = entries[j]
+                            key = f"c{i+1}_{shortname}_{p}_interp{idx}"
+                            param_settings[key] = (
+                                float(b['min']) if b.get('min') is not None else None,
+                                float(b['max']) if b.get('max') is not None else None,
+                                bool(b.get('free', False)),
+                            )
                 continue
             lo, hi = c["param_ranges"].get(p, (None, None))
             free   = p in c.get("free_params", [])
@@ -212,7 +266,7 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             "fitter.printResults()",
             "",
             "# ── 6. Visualization ────────────────────────────────────",
-            'fig, ax = fitter.simulator.plot(["VIS2DATA", "T3PHI"])',
+            f"fig, ax = fitter.simulator.plot({dtypes_str})",
             "plt.show()",
         ]
     elif method == "grid":
@@ -243,9 +297,26 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             "plt.show()",
         ]
     else:  # emcee
-        nwalkers = result.get("nwalkers", 32)
-        nsteps   = result.get("nsteps",   1000)
-        init     = result.get("init",     "gaussian")
+        nwalkers    = result.get("nwalkers", 32)
+        nsteps      = result.get("nsteps",   1000)
+        init        = result.get("init",     "gaussian")
+        # "Refine results" (mode/discard/thin/chi2limfact) re-processes the
+        # already-sampled chain — no new sampling — and is forwarded as-is
+        # to printResults()/walkersPlot()/cornerPlot(), matching the live
+        # UI's "🔧 Refine results" expander exactly.
+        mode        = result.get("mode",        "best")
+        discard     = result.get("discard",     0)
+        thin        = result.get("thin",        1)
+        chi2limfact = result.get("chi2limfact", 20)
+        # printResults()/getResults() accept `mode`; walkersPlot()/
+        # cornerPlot() do not (verified against the installed oimodeler's
+        # signatures) — passing it there raises deep inside matplotlib via
+        # their **kwargs passthrough, so the two kwarg strings must differ.
+        results_kwargs = (
+            f"mode={mode!r}, discard={discard!r}, thin={thin!r}, "
+            f"chi2limfact={chi2limfact!r}"
+        )
+        plot_kwargs = f"discard={discard!r}, thin={thin!r}, chi2limfact={chi2limfact!r}"
         lines += [
             "# ── 5. Emcee MCMC ──────────────────────────────────────",
             f"fitter = oim.oimFitterEmcee(data, model, nwalkers={nwalkers},",
@@ -253,12 +324,12 @@ def generate_fitting_code(method: str, result: dict, data_filenames: list,
             f'fitter.prepare(init="{init}")',
             f"fitter.run(nsteps={nsteps}, progress=True)",
             "",
-            "fitter.printResults()",
+            f"fitter.printResults({results_kwargs})",
             "",
             "# ── 6. Visualization ────────────────────────────────────",
-            "fig_w, _ = fitter.walkersPlot(chi2limfact=5)",
-            "fig_c, _ = fitter.cornerPlot(dchi2limfact=5)",
-            'fig, ax  = fitter.simulator.plot(["VIS2DATA", "T3PHI"])',
+            f"fig_w, _ = fitter.walkersPlot({plot_kwargs})",
+            f"fig_c, _ = fitter.cornerPlot({plot_kwargs})",
+            f"fig, ax = fitter.simulator.plot({dtypes_str})",
             "plt.show()",
         ]
 

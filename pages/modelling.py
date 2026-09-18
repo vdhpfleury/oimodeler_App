@@ -6,8 +6,9 @@ Tabs :
     1. Basic Model      – ajout/édition de composants + preview
     2. Load CSV         – import d'un modèle depuis un CSV de résultats
     3. Interpolators    – configuration des oimInterp
-    4. Model summary    – visualisation χ² + VIS²/T3PHI
-    5. Model management – renommer / supprimer des modèles
+    4. Normalization    – configuration des oimParamNorm (flux entre composants)
+    5. Model summary    – visualisation χ² + VIS²/T3PHI
+    6. Model management – renommer / supprimer des modèles
 
 Dépendances :
     services/data_service.py  → get_oim(), get_registry(), load_oifits()
@@ -35,9 +36,13 @@ from core.model_builder import (
     generate_model_image_preview,
     generate_model_v2_t3phi_preview,
 )
-from core.csv_import import parse_csv_to_model
+from core.csv_import import (
+    parse_csv_to_model, split_interpolator_section, parse_interpolator_section,
+    split_normalization_section, parse_normalization_section,
+)
 from core.model_export import EXTERNAL_WRITER_SNIPPET
 from core.interp_registry import INTERP_REGISTRY, get_fittable_layout
+from core.normalization import validate_normalization_refs
 from core.validation import num, choice, choices, text, InvalidInput
 from components.param_editor import render_param_editor, read_all_widgets
 from components.plots import safe_pyplot
@@ -50,10 +55,11 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def render() -> None:
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Basic Model",
         "Import model",
         "Interpolators",
+        "Normalization",
         "Model summary",
         "Model management",
     ])
@@ -65,8 +71,10 @@ def render() -> None:
     with tab3:
         _render_interpolators()
     with tab4:
-        _render_model_summary()
+        _render_normalization()
     with tab5:
+        _render_model_summary()
+    with tab6:
         _render_model_management()
 
 
@@ -106,6 +114,7 @@ def _render_basic_model() -> None:
                                     "params", c.get("params", [])
                                 ),
                                 "interpolators": c.get("interpolators", {}),
+                                "normalizations": c.get("normalizations", {}),
                             }
                             for c in loaded["components"]
                         ]
@@ -314,6 +323,7 @@ def _render_basic_model() -> None:
                     'param_ranges':   c['param_ranges'].copy(),
                     'free_params':    c['free_params'].copy(),
                     'interpolators':  c.get('interpolators', {}).copy(),
+                    'normalizations': c.get('normalizations', {}).copy(),
                 }
                 for c in st.session_state.components
             ]
@@ -353,16 +363,47 @@ def _render_model_import() -> None:
 
     if model_file is not None:
         try:
+            import io  # noqa: PLC0415
+
+            # Split off the (optional) interpolator/normalization metadata
+            # sections before handing the rest to pd.read_csv — see
+            # core/model_export.py's INTERPOLATOR_SECTION_MARKER /
+            # NORMALIZATION_SECTION_MARKER. A plain CSV/TXT (no
+            # interpolators or normalizations, or one written by
+            # EXTERNAL_WRITER_SNIPPET) has neither section and is passed
+            # through unchanged. Normalizations are split off FIRST since
+            # their marker always comes after the interpolator section
+            # when both are present.
+            raw_text = model_file.getvalue().decode("utf-8")
+            rest_text, norm_text = split_normalization_section(raw_text)
+            main_text, interp_text = split_interpolator_section(rest_text)
+            interp_rows = parse_interpolator_section(interp_text)
+            norm_rows   = parse_normalization_section(norm_text)
+
             # sep=None + engine='python' auto-detects the delimiter — the
             # same parser handles a comma-separated .csv and a
             # tab-separated .txt (core/model_export.py's normalized
             # format) without needing two code paths.
-            model_df = pd.read_csv(model_file, sep=None, engine="python")
+            model_df = pd.read_csv(io.StringIO(main_text), sep=None, engine="python")
             with st.expander("Preview of loaded file", expanded=False):
                 st.dataframe(model_df, use_container_width=True)
+                if interp_rows:
+                    st.caption(
+                        f"{len(interp_rows)} interpolated parameter"
+                        f"{'s' if len(interp_rows) > 1 else ''} found in the "
+                        f"file's interpolator metadata section."
+                    )
+                if norm_rows:
+                    st.caption(
+                        f"{len(norm_rows)} normalized parameter"
+                        f"{'s' if len(norm_rows) > 1 else ''} found in the "
+                        f"file's normalization metadata section."
+                    )
 
             if do_import:
-                result, err_msg = parse_csv_to_model(model_df, registry)
+                result, err_msg, warns = parse_csv_to_model(
+                    model_df, registry, interp_rows=interp_rows, norm_rows=norm_rows,
+                )
                 if result is None:
                     st.error(f"❌ Import error:\n\n{err_msg}")
                 else:
@@ -384,6 +425,8 @@ def _render_model_import() -> None:
                         f"✅ Model **{target_name}** successfully imported "
                         f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
                     )
+                    for w in warns:
+                        st.warning(f"⚠️ {w}")
                     log_event("Model imported", f"{target_name} ({n_comp} components)")
                     st.rerun()
         except Exception as exc:
@@ -731,7 +774,183 @@ def _render_interp_param(key: str, name: str, spec: dict, prior_value):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tab 4 – Model summary
+# Tab 4 – Normalization (oimParamNorm)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _render_normalization() -> None:
+    registry = get_registry()
+
+    st.markdown("##### Configure flux normalization (`oimParamNorm`)")
+    st.caption(
+        "Tie one component's parameter to `norm − sum(others)`, evaluated "
+        "dynamically against OTHER components' own parameters in the same "
+        "model — the standard way to normalize flux across components in "
+        "a multi-component SED, e.g. `pt2.params[\"f\"] = "
+        "oim.oimParamNorm(g2.params[\"f\"])` (see the "
+        "[oimParamNorm docs](https://oimodeler.readthedocs.io/en/latest/models.html))."
+    )
+
+    if not st.session_state.MODEL:
+        st.info("No model available. Create or import a model first.")
+        return
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("##### A. Select the parameter to normalize")
+        norm_model_name = st.selectbox(
+            "Target model",
+            sorted(st.session_state.MODEL.keys()),
+            key="norm_model_sel",
+        )
+        norm_model_data = st.session_state.MODEL[norm_model_name]
+        norm_comps      = norm_model_data.get("components", [])
+
+        if len(norm_comps) < 2:
+            st.warning(
+                "This model needs at least two components — a normalized "
+                "parameter must reference at least one OTHER component."
+            )
+            return
+
+        comp_names_norm = [c["name"] for c in norm_comps]
+        norm_comp_name  = st.selectbox(
+            "Component", comp_names_norm, key="norm_comp_sel",
+        )
+        norm_comp = next(c for c in norm_comps if c["name"] == norm_comp_name)
+
+        _comp_type          = norm_comp.get("type", "")
+        _params_from_reg    = registry.get(_comp_type, {}).get("params", [])
+        _params_from_comp   = norm_comp.get("params", _params_from_reg)
+        norm_params_avail   = [p for p in _params_from_comp if p not in ("x", "y")]
+
+        norm_param = st.selectbox(
+            "Parameter to normalize", norm_params_avail, key="norm_param_sel",
+        )
+        if norm_comp.get("interpolators", {}).get(norm_param, {}).get("enabled", False):
+            st.warning(
+                f"**{norm_param}** currently has an active interpolator on this "
+                f"component — applying a normalization below will replace it."
+            )
+
+        # ── Résumé des normalisations actives ──────────────────────────
+        st.markdown("###### Active normalizations on this component")
+        norms = norm_comp.get("normalizations", {})
+        if not any(cfg.get("enabled") for cfg in norms.values()):
+            st.caption("No normalization configured.")
+        else:
+            for p_name, cfg in norms.items():
+                if not cfg.get("enabled"):
+                    continue
+                refs_summary = ", ".join(
+                    f"{r['component']}.{r['param']}" for r in cfg.get("refs", [])
+                )
+                st.info(
+                    f"⚖️ **{p_name}** = {cfg.get('norm', 1.0):g} − ({refs_summary})"
+                )
+                if st.button(f"🗑️ Remove normalization {p_name}",
+                             key=f"del_norm_{p_name}"):
+                    del norm_comp["normalizations"][p_name]
+                    st.rerun()
+
+    with col2:
+        st.write("##### B. Set normalization")
+        _render_norm_picker(norm_comp, norm_param, norm_comp_name, norm_comps, registry)
+
+    st.write("##### C. Save as a new model")
+
+    new_norm_name = st.text_input(
+        "Save under name",
+        value=f"{norm_model_name}_norm",
+        key="norm_save_name",
+        width=300,
+    )
+    if st.button("💾 Save model with normalization",
+                    key="btn_save_norm", type="primary",
+                    width=300):
+        saved = copy.deepcopy(norm_model_data)
+        for i, c in enumerate(saved["components"]):
+            if c["name"] == norm_comp_name:
+                saved["components"][i]["normalizations"] = \
+                    norm_comp.get("normalizations", {})
+        target = new_norm_name.strip() or f"{norm_model_name}_norm"
+        st.session_state.MODEL[target] = saved
+        st.success(f"✅ Model **{target}** saved with normalization!")
+        log_event("Model saved", f"{target} (with normalization)")
+
+
+def _render_norm_picker(norm_comp: dict, norm_param: str, norm_comp_name: str,
+                        norm_comps: list, registry: dict) -> None:
+    """Pick a `norm` value and a set of OTHER components' parameters to
+    normalize `norm_comp[norm_param]` against, then apply."""
+    cur_norm = norm_comp.get("normalizations", {}).get(norm_param, {})
+
+    norm_val_raw = st.number_input(
+        "Norm (target sum)", value=float(cur_norm.get("norm", 1.0)),
+        key="norm_value_input",
+        help="oim.oimParamNorm's `norm` kwarg — the parameter becomes "
+             "norm minus the sum of the selected references below "
+             "(1.0 for a standard flux normalization across components "
+             "summing to 1).",
+    )
+
+    other_comps = [c for c in norm_comps if c["name"] != norm_comp_name]
+    if not other_comps:
+        st.warning("No other component in this model to normalize against.")
+        return
+
+    ref_options = []
+    for c in other_comps:
+        c_params = registry.get(c.get("type", ""), {}).get(
+            "params", c.get("params", [])
+        )
+        for p in c_params:
+            ref_options.append((c["name"], p))
+
+    option_labels = [f"{cn}.{pn}" for cn, pn in ref_options]
+    prior_refs = {(r["component"], r["param"]) for r in cur_norm.get("refs", [])}
+    default_selection = [
+        f"{cn}.{pn}" for cn, pn in ref_options if (cn, pn) in prior_refs
+    ]
+
+    selected_labels = st.multiselect(
+        "Normalize against (component.parameter)", option_labels,
+        default=default_selection, key="norm_refs_multiselect",
+        help="This parameter's value becomes: norm − sum(selected "
+             "parameters' current values), re-evaluated on every use — "
+             "not a one-time snapshot.",
+    )
+    label_to_ref = dict(zip(option_labels, ref_options))
+    refs = [
+        {"component": label_to_ref[lbl][0], "param": label_to_ref[lbl][1]}
+        for lbl in selected_labels
+    ]
+
+    try:
+        norm_val = num(norm_val_raw, -1e9, 1e9, "Norm")
+        if refs:
+            validate_normalization_refs(norm_comp_name, refs, norm_comps, registry)
+    except InvalidInput as exc:
+        st.warning(str(exc))
+        return
+
+    if not refs:
+        st.caption("Select at least one component.parameter to normalize against.")
+        return
+
+    if st.button("✅ Apply normalization", key="btn_apply_norm", use_container_width=True):
+        norm_comp.setdefault("normalizations", {})[norm_param] = {
+            "enabled": True, "norm": norm_val, "refs": refs,
+        }
+        st.success(
+            f"✅ Normalization applied to **{norm_comp_name}.{norm_param}**"
+        )
+        log_event("Normalization applied", f"{norm_comp_name}.{norm_param}")
+        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tab 5 – Model summary
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_model_summary() -> None:
@@ -875,7 +1094,7 @@ def _render_model_summary() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tab 5 – Model management
+# Tab 6 – Model management
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _render_model_management() -> None:

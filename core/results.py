@@ -33,6 +33,26 @@ def get_result_df(model_or_fit, is_fit: bool = False) -> tuple[float | None, pd.
 
     rows = []
     for name, p in params.items():
+        if not hasattr(p, "value"):
+            # A derived parameter (e.g. oim.oimParamNorm — see
+            # core/normalization.py) has no independent value/bounds of
+            # its own: it's a live formula over OTHER parameters, with no
+            # .value/.min/.max/.error, only .free (always False) and
+            # __call__(wl, t). Show its current computed value only.
+            try:
+                value = float(p())
+            except Exception:
+                value = None
+            rows.append({
+                "Parameter":   name,
+                "Value":       value,
+                "Uncertainty": None,
+                "Min":         None,
+                "Max":         None,
+                "Free":        False,
+                "At bound":    False,
+            })
+            continue
         at_min = (p.min is not None) and abs(p.value - p.min) < 1e-10
         at_max = (p.max is not None) and abs(p.value - p.max) < 1e-10
         rows.append({
@@ -68,6 +88,13 @@ def update_model_from_fit(new_name: str, base_name: str,
         if len(parts) < 3:
             continue
         param_name = "_".join(parts[2:])
+
+        if not hasattr(p, "value"):
+            # Derived parameter (e.g. oim.oimParamNorm) — its component
+            # dict's own "normalizations" entry is what defines it, not
+            # initial_values/param_ranges/free_params; nothing to copy
+            # back from the fit here.
+            continue
 
         if 0 <= comp_index < len(updated["components"]):
             comp = updated["components"][comp_index]
