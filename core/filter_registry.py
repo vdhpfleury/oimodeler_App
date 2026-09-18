@@ -10,7 +10,10 @@ what a stale or version-mismatched reference might suggest (e.g.
 oimWavelengthRangeFilter's `method` is really "cut" vs. anything else,
 not "flag"/"remove"; oimDiffErrFilter's `rangeType` really defaults to
 "index", not "inside"/"outside"; oimSetMinErrFilter has a `relThreshold`
-param the params list must not silently drop).
+param the params list must not silently drop; oimSetMinErrFilter's
+`values`/`relThreshold` must have the same length as `dataType` or
+oimUtils.setMinimumError raises IndexError applying the filter — see
+that entry's own comment).
 
 `oimFlagWithExpressionFilter` is intentionally NOT included: its `expr`
 parameter reaches oimodeler's `oifitsFlagWithExpression`, which does a
@@ -200,13 +203,25 @@ FILTER_REGISTRY: dict[str, dict] = {
     "oimSetMinErrFilter": {
         "description": "Set a minimum error on data — % for visibilities, degrees for phases.",
         "parameters": {
-            "targets":      {"type": "target", "label": "Targets"},
-            "arr":          {"type": "array",  "label": "Arrays / Tables"},
-            "values":       {"type": "float", "label": "Minimum error",
-                              "default": 5.0, "min": 0.0, "max": 1000.0},
+            "targets":      {"type": "target",   "label": "Targets"},
+            "arr":          {"type": "array",    "label": "Arrays / Tables"},
+            # dataType MUST be declared (and rendered) before values/
+            # relThreshold: oimodeler's setMinimumError() requires both to
+            # be either a single scalar (broadcast to every data type) or
+            # a list of EXACTLY the same length as dataType, in the same
+            # order — passing a shorter list raises IndexError deep
+            # inside oimUtils.setMinimumError as soon as the filter is
+            # applied (reproduced: selecting 2 data types with only 1
+            # minimum-error value crashes the whole page). The per-
+            # datatype widget types below read this dataType selection
+            # from its own session_state key (see _render_param) to
+            # render exactly one value per selected data type.
             "dataType":     {"type": "dataType", "label": "Data type"},
+            "values":       {"type": "per_datatype_float", "label": "Minimum error",
+                              "default": 5.0, "min": 0.0, "max": 1000.0},
             "relThreshold": {
-                "type": "optional_float", "label": "Relative threshold (VISAMP/VIS2DATA only)",
+                "type": "per_datatype_optional_float",
+                "label": "Relative threshold (VISAMP/VIS2DATA only)",
                 "min": 0.0, "max": 1000.0,
             },
         },
