@@ -26,8 +26,12 @@ import pytest
 oim = pytest.importorskip("oimodeler")
 
 from core.registry import build_registry
-from core.csv_import import parse_csv_to_model
-from core.model_export import model_to_txt, EXTERNAL_WRITER_SNIPPET
+from core.csv_import import (
+    parse_csv_to_model, split_interpolator_section, parse_interpolator_section,
+)
+from core.model_export import (
+    model_to_txt, EXTERNAL_WRITER_SNIPPET, INTERPOLATOR_SECTION_MARKER,
+)
 
 
 @pytest.fixture(scope="module")
@@ -63,8 +67,9 @@ def test_model_to_txt_round_trips(registry):
     assert "\t" in txt, "must be tab-separated, not comma"
 
     df = pd.read_csv(io.StringIO(txt), sep="\t")
-    result, err = parse_csv_to_model(df, registry)
+    result, err, warns = parse_csv_to_model(df, registry)
     assert result is not None, err
+    assert warns == []
 
     comps = {c["type"]: c for c in result["components"]}
     assert set(comps) == {"oimUD", "oimBackground"}
@@ -98,8 +103,9 @@ def test_external_writer_snippet_round_trips(tmp_path, registry):
     assert "np.float16" not in content, "numpy scalar repr leaked into the file"
 
     df = pd.read_csv(tmp_path / "external_test_model.txt", sep=None, engine="python")
-    result, err = parse_csv_to_model(df, registry)
+    result, err, warns = parse_csv_to_model(df, registry)
     assert result is not None, err
+    assert warns == []
 
     comps = {c["type"]: c for c in result["components"]}
     ud = comps["oimUD"]
@@ -108,3 +114,73 @@ def test_external_writer_snippet_round_trips(tmp_path, registry):
     assert math.isclose(ud["param_ranges"]["d"][0], 0.5)
     assert math.isclose(ud["param_ranges"]["d"][1], 5.0)
     assert math.isclose(ud["initial_values"]["d"], 2.0)
+
+
+def test_model_to_txt_round_trips_interpolator(registry):
+    """A model with an enabled interpolator must survive export/import:
+    macro, kwargs and per-element bounds all come back exactly, instead of
+    being silently dropped (the bug this was written to fix)."""
+    model_dict = {
+        "components": [
+            {
+                "type": "oimUD", "name": "c1_UD",
+                "initial_values": {"x": 0., "y": 0., "f": 1., "d": 2.0},
+                "param_ranges": {"x": (-5., 5.), "y": (-5., 5.),
+                                  "f": (0., 1.), "d": (0.5, 5.0)},
+                "free_params": ["d"],
+                "interpolators": {
+                    "f": {
+                        "enabled": True,
+                        "macro": "GaussWl",
+                        "kwargs": {"x0": 2.2e-6, "fwhm": 0.5e-6,
+                                   "val0": 0.1, "value": 1.0},
+                        "bounds": {
+                            "x0":    [{"free": False, "min": 1e-7, "max": 3e-5}],
+                            "fwhm":  [{"free": False, "min": 1e-7, "max": 3e-5}],
+                            "val0":  [{"free": True,  "min": 0.0,  "max": 1.0}],
+                            "value": [{"free": True,  "min": 0.0,  "max": 1.0}],
+                        },
+                    },
+                },
+            },
+        ],
+    }
+    txt = model_to_txt(model_dict, registry)
+    assert INTERPOLATOR_SECTION_MARKER in txt
+
+    main_text, interp_text = split_interpolator_section(txt)
+    assert "c1_UD_f" not in main_text, "interpolated param must not land in the flat table"
+
+    interp_rows = parse_interpolator_section(interp_text)
+    assert interp_rows[(1, "f")]["macro"] == "GaussWl"
+
+    df = pd.read_csv(io.StringIO(main_text), sep="\t")
+    result, err, warns = parse_csv_to_model(df, registry, interp_rows=interp_rows)
+    assert result is not None, err
+    assert warns == []
+
+    comp = result["components"][0]
+    assert comp["interpolators"]["f"]["macro"] == "GaussWl"
+    assert math.isclose(comp["interpolators"]["f"]["kwargs"]["value"], 1.0)
+    assert comp["interpolators"]["f"]["bounds"]["val0"][0]["free"] is True
+    assert comp["interpolators"]["f"]["bounds"]["x0"][0]["free"] is False
+
+
+def test_orphan_interp_suffix_rows_warn_instead_of_silently_dropping(registry):
+    """A file with '..._interpN' rows but no interpolator metadata section
+    (e.g. written by EXTERNAL_WRITER_SNIPPET from a real
+    model.getParameters(), which flattens interpolators with no macro/
+    kwargs/bounds attached) must warn, not silently discard the data."""
+    txt = (
+        "Parameter\tValue\tUncertainty\tMin\tMax\tFree\n"
+        "c1_UD_x\t0.0\t\t-5.0\t5.0\tFalse\n"
+        "c1_UD_y\t0.0\t\t-5.0\t5.0\tFalse\n"
+        "c1_UD_d\t2.0\t\t0.5\t5.0\tTrue\n"
+        "c1_UD_f_interp1\t2.2e-06\t\t1e-07\t3e-05\tFalse\n"
+        "c1_UD_f_interp2\t1.0\t\t0.0\t1.0\tTrue\n"
+    )
+    df = pd.read_csv(io.StringIO(txt), sep="\t")
+    result, err, warns = parse_csv_to_model(df, registry)
+    assert result is not None, err
+    assert len(warns) == 1
+    assert "c1" in warns[0] and "'f'" in warns[0]

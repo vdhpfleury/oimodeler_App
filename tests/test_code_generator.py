@@ -18,6 +18,7 @@ see the project skill) and are skipped if it isn't available.
 from __future__ import annotations
 
 import ast
+import math
 import os
 import re
 import subprocess
@@ -152,6 +153,72 @@ def test_param_settings_are_name_keyed_and_skip_interpolated_params(registry):
     assert settings["c1_UD_f"] == (0.1, 0.9, True)
     assert settings["c2_UD_d"] == (0.1, 3.0, True)
     assert settings["c2_UD_x"][2] is False  # x/y never marked free here
+
+
+def test_param_settings_include_interpolator_bounds_when_configured(registry):
+    """When per-sub-parameter bounds ARE configured for an interpolated
+    parameter (the Interpolators tab's per-element bounds UI), the
+    generator must emit .set() targets for exactly the real
+    '..._interpN' keys oimodeler assigns — verified against
+    core/component.py's ComponentConfig.create_instance(), the reference
+    implementation that applies these same bounds live — instead of
+    leaving them at oimodeler's raw defaults."""
+    comps = [
+        {
+            "type": "oimUD",
+            "name": "comp1_UD_interp",
+            "initial_values": {"x": 0.0, "y": 0.0, "f": 0.5, "d": 1.0},
+            "param_ranges": {"x": (-5., 5.), "y": (-5., 5.), "f": (0., 1.), "d": (0.1, 3.0)},
+            "free_params": ["d"],
+            "interpolators": {
+                "f": {
+                    "enabled": True, "macro": "GaussWl",
+                    "kwargs": {"x0": 2.2e-6, "fwhm": 0.5e-6, "val0": 0.1, "value": 1.0},
+                    "bounds": {
+                        "x0":    [{"free": False, "min": 1e-7, "max": 3e-5}],
+                        "fwhm":  [{"free": False, "min": 1e-7, "max": 3e-5}],
+                        "val0":  [{"free": True,  "min": 0.0,  "max": 1.0}],
+                        "value": [{"free": True,  "min": 0.0,  "max": 1.0}],
+                    },
+                },
+            },
+        },
+    ]
+    code = generate_fitting_code(
+        method="chi2",
+        result={"dtypes": ["VIS2DATA"]},
+        data_filenames=[DATA_FILE],
+        model_comps=comps,
+        applied_filters=APPLIED_FILTERS,
+        registry=registry,
+    )
+    settings = _extract_param_settings(code)
+
+    from core.component import ComponentConfig
+    cfg = ComponentConfig(
+        "oimUD", registry, name="comp1_UD_interp",
+        initial_values=comps[0]["initial_values"],
+        param_ranges=comps[0]["param_ranges"],
+        free_params=comps[0]["free_params"],
+        interpolators=comps[0]["interpolators"],
+    )
+    instance = cfg.create_instance(oim)
+    model = oim.oimModel(instance)
+    real_params = model.getParameters()
+
+    interp_keys = {k for k in real_params if "_interp" in k}
+    assert interp_keys, "test setup sanity check: model should have interpolated sub-params"
+    assert interp_keys <= set(settings), (
+        "generated param_settings must cover every controllable interpolator sub-parameter"
+    )
+    for key in interp_keys:
+        lo, hi, free = settings[key]
+        p = real_params[key]
+        assert free == p.free, f"{key}: free mismatch"
+        if lo is not None:
+            assert math.isclose(lo, float(p.min)), f"{key}: min mismatch"
+        if hi is not None:
+            assert math.isclose(hi, float(p.max)), f"{key}: max mismatch"
 
 
 @pytest.mark.skipif(

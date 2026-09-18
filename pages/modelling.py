@@ -35,7 +35,9 @@ from core.model_builder import (
     generate_model_image_preview,
     generate_model_v2_t3phi_preview,
 )
-from core.csv_import import parse_csv_to_model
+from core.csv_import import (
+    parse_csv_to_model, split_interpolator_section, parse_interpolator_section,
+)
 from core.model_export import EXTERNAL_WRITER_SNIPPET
 from core.interp_registry import INTERP_REGISTRY, get_fittable_layout
 from core.validation import num, choice, choices, text, InvalidInput
@@ -353,16 +355,36 @@ def _render_model_import() -> None:
 
     if model_file is not None:
         try:
+            import io  # noqa: PLC0415
+
+            # Split off the (optional) interpolator-metadata section
+            # before handing the rest to pd.read_csv — see
+            # core/model_export.py's INTERPOLATOR_SECTION_MARKER. A plain
+            # CSV/TXT (no interpolators, or one written by
+            # EXTERNAL_WRITER_SNIPPET) has no such section and is passed
+            # through unchanged.
+            raw_text = model_file.getvalue().decode("utf-8")
+            main_text, interp_text = split_interpolator_section(raw_text)
+            interp_rows = parse_interpolator_section(interp_text)
+
             # sep=None + engine='python' auto-detects the delimiter — the
             # same parser handles a comma-separated .csv and a
             # tab-separated .txt (core/model_export.py's normalized
             # format) without needing two code paths.
-            model_df = pd.read_csv(model_file, sep=None, engine="python")
+            model_df = pd.read_csv(io.StringIO(main_text), sep=None, engine="python")
             with st.expander("Preview of loaded file", expanded=False):
                 st.dataframe(model_df, use_container_width=True)
+                if interp_rows:
+                    st.caption(
+                        f"{len(interp_rows)} interpolated parameter"
+                        f"{'s' if len(interp_rows) > 1 else ''} found in the "
+                        f"file's interpolator metadata section."
+                    )
 
             if do_import:
-                result, err_msg = parse_csv_to_model(model_df, registry)
+                result, err_msg, warns = parse_csv_to_model(
+                    model_df, registry, interp_rows=interp_rows,
+                )
                 if result is None:
                     st.error(f"❌ Import error:\n\n{err_msg}")
                 else:
@@ -384,6 +406,8 @@ def _render_model_import() -> None:
                         f"✅ Model **{target_name}** successfully imported "
                         f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
                     )
+                    for w in warns:
+                        st.warning(f"⚠️ {w}")
                     log_event("Model imported", f"{target_name} ({n_comp} components)")
                     st.rerun()
         except Exception as exc:

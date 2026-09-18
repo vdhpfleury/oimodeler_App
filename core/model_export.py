@@ -21,7 +21,20 @@ Logique pure – aucune dépendance Streamlit.
 """
 from __future__ import annotations
 
+import json
+
 _HEADER = "Parameter\tValue\tUncertainty\tMin\tMax\tFree"
+
+# Appended after the flat parameter table, on its own line, when the model
+# has at least one enabled interpolator. Everything after this marker is
+# an oimodeler_App-specific extension (one tab-separated row per
+# interpolated parameter: key, macro, kwargs as JSON, bounds as JSON) that
+# core.csv_import.split_interpolator_section()/parse_interpolator_section()
+# read back to fully reconstruct interpolators on import. A plain CSV
+# reader (or EXTERNAL_WRITER_SNIPPET, which never writes this section)
+# simply never produces it, and pandas never sees it either — the app
+# splits it off *before* handing the rest to pd.read_csv.
+INTERPOLATOR_SECTION_MARKER = "# OIMODELER_APP_INTERPOLATORS"
 
 
 def model_to_txt(model_dict: dict, registry: dict) -> str:
@@ -31,12 +44,16 @@ def model_to_txt(model_dict: dict, registry: dict) -> str:
     d'un vrai model.getParameters(), donc les deux sont mutuellement
     réimportables par la page Modelling.
 
-    Les paramètres interpolés (oimInterp) sont omis : il n'existe pas de
-    triplet (valeur, min, max) unique qui les représente dans ce format
-    plat — même limitation, documentée de la même façon, que
-    core/code_generator.py pour le code reproductible.
+    Les paramètres interpolés (oimInterp) n'ont pas de triplet
+    (valeur, min, max) unique représentable dans ce tableau plat — ils en
+    sont donc omis, mais une section supplémentaire (voir
+    INTERPOLATOR_SECTION_MARKER) enregistre pour chacun son macro
+    d'interpolation, ses kwargs et ses bornes par élément, afin que
+    core.csv_import puisse les reconstruire à l'import plutôt que de les
+    perdre silencieusement.
     """
     lines = [_HEADER]
+    interp_lines = []
     for i, c in enumerate(model_dict.get('components', [])):
         comp_type = c['type']
         comp_cls  = registry.get(comp_type, {}).get('class')
@@ -47,15 +64,23 @@ def model_to_txt(model_dict: dict, registry: dict) -> str:
         interps = c.get('interpolators', {})
 
         for p in params:
+            key = f"c{i+1}_{shortname}_{p}"
             if p in interps and interps[p].get('enabled', False):
+                cfg = interps[p]
+                interp_lines.append(
+                    f"{key}\t{cfg['macro']}\t{json.dumps(cfg['kwargs'])}\t"
+                    f"{json.dumps(cfg.get('bounds', {}))}"
+                )
                 continue
             value  = c['initial_values'].get(p, 0.)
             lo, hi = c.get('param_ranges', {}).get(p, (float('-inf'), float('inf')))
             free   = p in c.get('free_params', [])
-            key    = f"c{i+1}_{shortname}_{p}"
             lines.append(f"{key}\t{value!r}\t\t{lo!r}\t{hi!r}\t{free}")
 
-    return "\n".join(lines) + "\n"
+    out = "\n".join(lines) + "\n"
+    if interp_lines:
+        out += "\n" + INTERPOLATOR_SECTION_MARKER + "\n" + "\n".join(interp_lines) + "\n"
+    return out
 
 
 # Shown as a copyable code block in Modelling > Import model, for use in

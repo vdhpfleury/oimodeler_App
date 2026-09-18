@@ -881,10 +881,14 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         code = generate_fitting_code(
             method="emcee",
             result={
-                "dtypes":   er['dtypes'],
-                "nwalkers": er['nwalkers'],
-                "nsteps":   er['nsteps'],
-                "init":     er['init'],
+                "dtypes":      er['dtypes'],
+                "nwalkers":    er['nwalkers'],
+                "nsteps":      er['nsteps'],
+                "init":        er['init'],
+                "mode":        er.get('mode', 'best'),
+                "discard":     er.get('discard', 0),
+                "thin":        er.get('thin', 1),
+                "chi2limfact": er.get('chi2limfact', 20),
             },
             data_filenames=st.session_state.get("selected_files", []),
             model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
