@@ -49,6 +49,19 @@ from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pypl
 
 logger = logging.getLogger(__name__)
 
+# Sensible default Y-axis range per FITTABLE_DATA_TYPES entry, used when
+# generating a per-data-type results plot (Emcee's "Data vs model" tab).
+# None means "let matplotlib auto-scale" — FLUXDATA's scale varies too
+# much across datasets/instruments to guess a shared default.
+_DEFAULT_Y_RANGE: dict[str, tuple[float, float] | None] = {
+    "VIS2DATA": (0.0, 1.0),
+    "VISAMP":   (0.0, 1.0),
+    "T3AMP":    (0.0, 1.0),
+    "VISPHI":   (-15.0, 15.0),
+    "T3PHI":    (-15.0, 15.0),
+    "FLUXDATA": None,
+}
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Point d'entrée
@@ -343,18 +356,22 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         data.useFilter = True
         decomp = decompose_model_flux(oim, r['best_chi2_model'], data)
 
-        ax_v2   = r['lmfit'].simulator.plotWithResiduals(
-            ["VIS2DATA"], xunit="cycle/mas",
-            kwargsData=dict(color="byBaseline"))[1]
-        ax_t3   = r['lmfit'].simulator.plotWithResiduals(
-            ["T3PHI"], xunit="cycle/mas",
-            kwargsData=dict(color="byBaseline"))[1]
+        # One panel per data type actually used for this fit (r['dtypes'])
+        # — previously hardcoded to VIS2DATA + T3PHI regardless of what
+        # "Data to fit" was actually set to, so e.g. a VISAMP-only fit
+        # still only ever showed VIS²/T3PHI (neither part of the fit).
+        dtype_axes_src = [
+            (dtype, r['lmfit'].simulator.plotWithResiduals(
+                [dtype], xunit="cycle/mas", kwargsData=dict(color="byBaseline"))[1][0])
+            for dtype in r['dtypes']
+        ]
         d_img   = extract_model_image(oim, r['best_chi2_model'])
         fig_flux = plot_flux_decomposition(decomp, data)
         ax_flux_src = fig_flux.axes[0]
         plt.close('all')
 
-        fig_cmp, axes_cmp = plt.subplots(1, 4, figsize=(24, 5))
+        n_panels = 2 + len(dtype_axes_src)  # FLUXDATA + one per dtype + model image
+        fig_cmp, axes_cmp = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5))
 
         copy_axes_lines(ax_flux_src, axes_cmp[0])
         axes_cmp[0].set_title("FLUXDATA / components")
@@ -365,24 +382,22 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
                 seen[l] = h
         axes_cmp[0].legend(seen.values(), seen.keys(), fontsize=7)
 
-        copy_axes_lines(ax_v2[0], axes_cmp[1])
-        axes_cmp[1].set_title("VIS²")
-
-        copy_axes_lines(ax_t3[0], axes_cmp[2])
-        axes_cmp[2].set_title("T3PHI")
+        for i, (dtype, ax_src) in enumerate(dtype_axes_src, start=1):
+            copy_axes_lines(ax_src, axes_cmp[i])
+            axes_cmp[i].set_title(dtype)
 
         # Astronomical convention: RA increases to the left (East left).
         d_extent_half = d_img.shape[-1] * 0.05 / 2  # matches extract_model_image() default img_scale
         d_img_disp = d_img[0, 0] ** 0.2
         d_vmin, d_vmax = np.percentile(d_img_disp, [chi2_clip_lo, chi2_clip_hi])
-        axes_cmp[3].imshow(
+        axes_cmp[-1].imshow(
             d_img_disp, cmap='hot', origin='lower',
             extent=[d_extent_half, -d_extent_half, -d_extent_half, d_extent_half],
             vmin=d_vmin, vmax=d_vmax,
         )
-        axes_cmp[3].set_xlabel("ΔRA (mas)")
-        axes_cmp[3].set_ylabel("ΔDec (mas)")
-        axes_cmp[3].set_title("Model (γ=0.2)")
+        axes_cmp[-1].set_xlabel("ΔRA (mas)")
+        axes_cmp[-1].set_ylabel("ΔDec (mas)")
+        axes_cmp[-1].set_title("Model (γ=0.2)")
 
         plt.tight_layout()
         safe_pyplot(st, fig_cmp, use_container_width=True)
@@ -789,8 +804,8 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             "Re-processes the existing MCMC chain — no new sampling. Matches "
             "oimodeler's own getResults()/printResults()/walkersPlot()/"
             "cornerPlot() `mode`/`discard`/`thin`/`chi2limfact` arguments. "
-            "Applying refreshes the fitted parameters, model image, VIS²/T3PHI "
-            "and FLUXDATA tabs below, as well as the Walkers and Corner plots."
+            "Applying refreshes the fitted parameters, model image, Data vs "
+            "model and FLUXDATA tabs below, as well as the Walkers and Corner plots."
         )
         max_discard = max(er['nsteps'] - 1, 0)
         rc1, rc2, rc3, rc4 = st.columns(4)
@@ -888,43 +903,56 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     # regenerated.
     fig_0 = fig_img = fw = fc = None
 
-    tabs = st.tabs(["VIS² / T3PHI", "Model image", "FLUXDATA / components", "Walkers", "Corner plot"])
+    # Data type(s) actually used for this fit (er['dtypes']) — previously
+    # this tab always plotted VIS2DATA + T3PHI regardless of what "Data to
+    # fit" was set to, so e.g. a VISAMP-only fit still only ever showed
+    # VIS²/T3PHI, neither of which was part of the fit.
+    plot_dtypes = er.get('dtypes') or ['VIS2DATA', 'T3PHI']
+    tabs = st.tabs(["Data vs model", "Model image", "FLUXDATA / components", "Walkers", "Corner plot"])
     tab_vis, tab_img, tab_flux, tab_walk, tab_corner = tabs
 
-    # ── VIS² / T3PHI ──────────────────────────────────────────────────
+    # ── Data vs model ────────────────────────────────────────────────
     with tab_vis:
+        st.caption(f"Data type(s) used for this fit: {', '.join(plot_dtypes)}.")
         col_p, col_g = st.columns([1, 2])
         with col_p:
             st.write("$X$ axis")
             vt_xs  = st.selectbox("X scale", ["linear", "log"], key="em_vt_xs")
             vt_xmn = st.number_input("Xmin (cycle/mas)", value=0., key="em_vt_xmn")
             vt_xmx = st.number_input("Xmax (cycle/mas)", value=5., key="em_vt_xmx")
-            st.write("$V^2$")
-            vt_v2_ys  = st.selectbox("Y scale VIS²", ["linear", "log"], key="em_vt_v2_ys")
-            vt_v2_ymn = st.number_input("Ymin VIS²", value=0., key="em_vt_v2_ymn")
-            vt_v2_ymx = st.number_input("Ymax VIS²", value=1., key="em_vt_v2_ymx")
-            st.write("$T3PHI$")
-            vt_t3_ymn = st.number_input("Ymin T3PHI (°)", value=-15., key="em_vt_t3_ymn")
-            vt_t3_ymx = st.number_input("Ymax T3PHI (°)", value=15.,  key="em_vt_t3_ymx")
+
+            panel_settings = []
+            for dtype in plot_dtypes:
+                st.write(f"**{dtype}**")
+                default_range = _DEFAULT_Y_RANGE.get(dtype)
+                auto = st.checkbox(
+                    "Auto Y range", value=default_range is None, key=f"em_vt_{dtype}_auto",
+                )
+                yscale = st.selectbox(
+                    "Y scale", ["linear", "log"], key=f"em_vt_{dtype}_yscale",
+                )
+                ymin = ymax = None
+                if not auto:
+                    lo_default, hi_default = default_range or (0.0, 1.0)
+                    ymin = st.number_input("Ymin", value=lo_default, key=f"em_vt_{dtype}_ymin")
+                    ymax = st.number_input("Ymax", value=hi_default, key=f"em_vt_{dtype}_ymax")
+                panel_settings.append((dtype, yscale, ymin, ymax))
         with col_g:
             try:
                 sim_plot = oim.oimSimulator(data=data, model=er['best_emcee_model'])
                 sim_plot.compute(computeChi2=False, computeSimulatedData=True)
-                fig_0, ax_0 = sim_plot.plot(["VIS2DATA", "T3PHI"])
+                fig_0, ax_0 = sim_plot.plot(plot_dtypes)
 
-                ax_0[0].set_xscale(vt_xs); ax_0[0].set_yscale(vt_v2_ys)
-                ax_0[0].set_xlim(vt_xmn * 1e7, vt_xmx * 1e7)
-                ax_0[0].set_ylim(vt_v2_ymn, vt_v2_ymx)
-                ax_0[0].set_title("VIS²"); ax_0[0].grid(True, alpha=0.3)
-
-                ax_0[1].set_xscale(vt_xs)
-                ax_0[1].set_xlim(vt_xmn * 1e7, vt_xmx * 1e7)
-                ax_0[1].set_ylim(vt_t3_ymn, vt_t3_ymx)
-                ax_0[1].set_title("T3PHI"); ax_0[1].grid(True, alpha=0.3)
+                for i, (dtype, yscale, ymin, ymax) in enumerate(panel_settings):
+                    ax_0[i].set_xscale(vt_xs); ax_0[i].set_yscale(yscale)
+                    ax_0[i].set_xlim(vt_xmn * 1e7, vt_xmx * 1e7)
+                    if ymin is not None and ymax is not None and ymin < ymax:
+                        ax_0[i].set_ylim(ymin, ymax)
+                    ax_0[i].set_title(dtype); ax_0[i].grid(True, alpha=0.3)
 
                 safe_pyplot(st, fig_0, use_container_width=True)
             except Exception as exc:
-                st.warning(f"VIS²/T3PHI: {exc}")
+                st.warning(f"{', '.join(plot_dtypes)}: {exc}")
 
     # ── MODEL IMAGE ───────────────────────────────────────────────────
     with tab_img:

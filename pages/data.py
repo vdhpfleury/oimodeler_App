@@ -390,6 +390,41 @@ def _render_param(key: str, param: dict, available: dict):
                            key=key, help=param.get("help"))
         return choice(raw, options, label)
 
+    if ptype in ("per_datatype_float", "per_datatype_optional_float"):
+        # Cross-parameter: depends on the sibling "dataType" multiselect,
+        # already rendered (and stored under its own key) earlier in this
+        # same form — FILTER_REGISTRY declares dataType before values/
+        # relThreshold specifically so this lookup finds a real value.
+        # oimodeler's setMinimumError() requires values/relThreshold to
+        # be either a scalar (broadcast to every data type) or a list of
+        # EXACTLY the same length as dataType — a shorter list raises
+        # IndexError deep inside oimUtils.setMinimumError as soon as the
+        # filter is applied. Always emitting one entry per selected data
+        # type (never a bare scalar) sidesteps that mismatch entirely.
+        filter_key_prefix = key.rsplit("__", 1)[0]
+        selected_types = st.session_state.get(f"{filter_key_prefix}__dataType", [])
+        if not selected_types:
+            st.caption(f"{label}: select a data type above first.")
+            return None
+
+        cols = st.columns(min(len(selected_types), 4))
+        result = []
+        for i, dtype in enumerate(selected_types):
+            with cols[i % len(cols)]:
+                st.caption(dtype)
+                if ptype == "per_datatype_optional_float":
+                    use_it = st.checkbox("Set", value=False, key=f"{key}_{dtype}_use")
+                    if not use_it:
+                        result.append(None)
+                        continue
+                raw = st.number_input(
+                    label, value=float(param.get("default", param["min"])),
+                    min_value=float(param["min"]), max_value=float(param["max"]),
+                    key=f"{key}_{dtype}", label_visibility="collapsed",
+                )
+                result.append(num(raw, param["min"], param["max"], label))
+        return result
+
     if ptype == "diff_err_range":
         # Cross-parameter: depends on the sibling "rangeType" select,
         # already rendered (and stored under its own key) earlier in this
