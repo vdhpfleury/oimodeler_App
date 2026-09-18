@@ -671,12 +671,19 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         st.error("Cannot build model.")
         return
 
-    # Rule of thumb defaults, from the current model's free-parameter count
-    # (emcee needs at least 2x the dimensionality of walkers to move at
-    # all): 2*nfree+1 walkers, up to 500 steps per free parameter — both
-    # clamped to the server-enforced caps below, never exceeding them.
+    # Rule of thumb defaults, from the current model's free-parameter count:
+    # 2*nfree+1 walkers, up to 500 steps per free parameter — both clamped
+    # to the server-enforced caps below, never exceeding them. Floored at
+    # 4 walkers regardless of nfree: oimFitterEmcee's default moves
+    # (DEMove + DESnookerMove, see oimFitterEmcee._prepare) split the
+    # ensemble into two halves each needing at least 2 walkers to draw a
+    # proposal pair from — reproduced directly against oimodeler with
+    # nwalkers=3 (2*1+1 for a 1-free-parameter model): "ValueError: a must
+    # be greater than 0 unless no samples are taken" the instant sampling
+    # starts, regardless of steps/data. 4 was confirmed to work for the
+    # same model.
     nb_free         = len(model_emcee.getFreeParameters())
-    default_walkers = min(max(2 * nb_free + 1, 1), MAX_EMCEE_WALKERS)
+    default_walkers = min(max(2 * nb_free + 1, 4), MAX_EMCEE_WALKERS)
     default_steps   = min(max(500 * nb_free, 0), MAX_EMCEE_STEPS)
 
     init_options = ['random', 'gaussian', ""]
@@ -688,8 +695,10 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         )
     with ec2:
         nb_walkers_raw = st.number_input(
-            "Walkers", 1, MAX_EMCEE_WALKERS, default_walkers, key="emcee_walkers",
-            help=f"Default: 2×(free parameters)+1 = {default_walkers} for this model.",
+            "Walkers", 4, MAX_EMCEE_WALKERS, default_walkers, key="emcee_walkers",
+            help=f"Default: 2×(free parameters)+1 = {default_walkers} for this model. "
+                 "Minimum 4: oimodeler's default Emcee moves need the walker "
+                 "ensemble to split into two halves of at least 2 each.",
         )
     with ec3:
         nb_steps_raw = st.number_input(
@@ -707,7 +716,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         # (V7's mitigation is a separate semaphore/cooldown workstream,
         # but the values themselves must still be bounded server-side, V4).
         emcee_dtypes = choices(emcee_dtypes_raw, FITTABLE_DATA_TYPES, "Data to fit")
-        nb_walkers   = num(nb_walkers_raw, 1, MAX_EMCEE_WALKERS, "Walkers", integer=True)
+        nb_walkers   = num(nb_walkers_raw, 4, MAX_EMCEE_WALKERS, "Walkers", integer=True)
         nb_steps     = num(nb_steps_raw, 0, MAX_EMCEE_STEPS, "Steps", integer=True)
         init_mode    = choice(init_mode_raw, init_options, "Init")
     except InvalidInput as exc:
@@ -774,7 +783,71 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     er = st.session_state.emcee_result
 
     st.markdown("### C — Results")
+
+    with st.expander("🔧 Refine results (discard burn-in / χ² threshold)", expanded=False):
+        st.caption(
+            "Re-processes the existing MCMC chain — no new sampling. Matches "
+            "oimodeler's own getResults()/printResults()/walkersPlot()/"
+            "cornerPlot() `mode`/`discard`/`thin`/`chi2limfact` arguments. "
+            "Applying refreshes the fitted parameters, model image, VIS²/T3PHI "
+            "and FLUXDATA tabs below, as well as the Walkers and Corner plots."
+        )
+        max_discard = max(er['nsteps'] - 1, 0)
+        rc1, rc2, rc3, rc4 = st.columns(4)
+        with rc1:
+            mode_options = ["best", "mean", "median"]
+            mode_raw = st.selectbox(
+                "Mode", mode_options,
+                index=mode_options.index(er.get('mode', 'best')),
+                key="em_refine_mode",
+            )
+        with rc2:
+            discard_raw = st.number_input(
+                "Discard (burn-in steps)", 0, max_discard,
+                min(er.get('discard', 0), max_discard), key="em_refine_discard",
+            )
+        with rc3:
+            thin_raw = st.number_input(
+                "Thin", 1, max(er['nsteps'], 1), er.get('thin', 1), key="em_refine_thin",
+            )
+        with rc4:
+            chi2limfact_raw = st.number_input(
+                "χ² lim factor", 0.01, 1000.0, er.get('chi2limfact', 20.0),
+                key="em_refine_chi2limfact",
+            )
+
+        if st.button("🔄 Apply", key="btn_refine_emcee"):
+            try:
+                mode        = choice(mode_raw, mode_options, "Mode")
+                discard     = num(discard_raw, 0, max_discard, "Discard", integer=True)
+                thin        = num(thin_raw, 1, max(er['nsteps'], 1), "Thin", integer=True)
+                chi2limfact = num(chi2limfact_raw, 0.01, 1000.0, "χ² lim factor")
+            except InvalidInput as exc:
+                st.warning(str(exc))
+            else:
+                try:
+                    er['lmfit'].getResults(mode=mode, discard=discard, thin=thin,
+                                           chi2limfact=chi2limfact)
+                    er['best_emcee_model'] = er['lmfit'].simulator.model
+                    er['chi2_final']       = er['lmfit'].simulator.chi2r
+                    er['mode'], er['discard'], er['thin'], er['chi2limfact'] = (
+                        mode, discard, thin, chi2limfact,
+                    )
+                    log_event(
+                        "Emcee results refined",
+                        f"mode={mode} discard={discard} thin={thin} chi2limfact={chi2limfact}",
+                    )
+                    st.success("✅ Results refreshed.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Could not refine results: {exc}")
+
     st.markdown(f"χ²ᵣ: **{er['chi2_init']:.2f}** → **{er['chi2_final']:.2f}**")
+    if er.get('discard') or er.get('thin', 1) != 1 or er.get('chi2limfact', 20) != 20 or er.get('mode', 'best') != 'best':
+        st.caption(
+            f"Refined with mode={er.get('mode', 'best')}, discard={er.get('discard', 0)}, "
+            f"thin={er.get('thin', 1)}, χ² lim factor={er.get('chi2limfact', 20)}"
+        )
     st.markdown("##### Fitted parameters")
     _, tbl_em = get_result_df(er['best_emcee_model'], is_fit=False)
     st.dataframe(tbl_em, use_container_width=True, height=350)
@@ -936,18 +1009,36 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 
     # ── WALKERS ───────────────────────────────────────────────────────
     with tab_walk:
-        st.caption("No adjustable parameters.")
+        st.caption(
+            f"Uses the same discard/thin/χ² lim factor as \"🔧 Refine results\" above "
+            f"(discard={er.get('discard', 0)}, thin={er.get('thin', 1)}, "
+            f"χ² lim factor={er.get('chi2limfact', 20)})."
+        )
         try:
-            fw, _ = er['lmfit'].walkersPlot(chi2limfact=5)
+            fw, _ = er['lmfit'].walkersPlot(
+                discard=er.get('discard', 0), thin=er.get('thin', 1),
+                chi2limfact=er.get('chi2limfact', 20),
+            )
             safe_pyplot(st, fw, use_container_width=True)
         except Exception as exc:
             st.warning(f"Walkers: {exc}")
 
     # ── CORNER PLOT ───────────────────────────────────────────────────
     with tab_corner:
-        st.caption("No adjustable parameters.")
+        st.caption(
+            f"Uses the same discard/thin/χ² lim factor as \"🔧 Refine results\" above "
+            f"(discard={er.get('discard', 0)}, thin={er.get('thin', 1)}, "
+            f"χ² lim factor={er.get('chi2limfact', 20)})."
+        )
         try:
-            fc, _ = er['lmfit'].cornerPlot(dchi2limfact=5)
+            # `chi2limfact` (not the old `dchi2limfact`, an unrecognized
+            # kwarg that cornerPlot's **kwargs silently swallowed — the
+            # plot always used its hardcoded default chi2limfact=20,
+            # never the 5 this call intended).
+            fc, _ = er['lmfit'].cornerPlot(
+                discard=er.get('discard', 0), thin=er.get('thin', 1),
+                chi2limfact=er.get('chi2limfact', 20),
+            )
             safe_pyplot(st, fc, use_container_width=True)
         except Exception as exc:
             st.warning(f"Corner: {exc}")
