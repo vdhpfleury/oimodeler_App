@@ -101,7 +101,7 @@ def _render_basic_model() -> None:
                     model_names,
                     key="model_to_load_sel",
                 )
-                if st.button("📂 Load", key="btn_load_existing"):
+                if st.button("📂 Load", type="primary", use_container_width=True, key="btn_load_existing"):
                     try:
                         # selectbox returns an unrecognized client value
                         # as-is instead of raising — re-validate (V4).
@@ -127,9 +127,15 @@ def _render_basic_model() -> None:
                     except InvalidInput as exc:
                         st.error(str(exc))
 
+        # Keyed with a counter bumped by "Reset model" — st.rerun() alone
+        # doesn't clear a text_input's displayed value even after its
+        # session_state entry is popped (the frontend keeps its own last
+        # value for that widget identity); changing the key forces a
+        # genuinely fresh widget instance instead.
         model_name_raw = st.text_input(
             "Model name", value="", placeholder="e.g.: uniform_disk",
-            key="model_name_input", width=300
+            key=f"model_name_input_{st.session_state.get('model_name_reset_ctr', 0)}",
+            width=300,
         )
         try:
             model_name = text(model_name_raw, "Model name", max_len=64)
@@ -156,7 +162,7 @@ def _render_basic_model() -> None:
         comp_name_inp_raw = st.text_input(
             "Component name", value=comp_type_sel, key="new_comp_name", width=300
         )
-        if st.button("➕ Add", type="primary"):
+        if st.button("➕ Add", type="primary", use_container_width=True):
             try:
                 comp_name_inp = text(comp_name_inp_raw, "Component name", max_len=64)
             except InvalidInput as exc:
@@ -192,18 +198,18 @@ def _render_basic_model() -> None:
                             model_preview_img_fov_raw    = st.number_input("pixel number", value=128, key="model_preview_img_fov")
                             model_preview_img_pxsize_raw = st.number_input("pixel size in mas", value=0.15, key="model_preview_img_pxsize")
                         with col2 :
-                            model_preview_img_gamma_raw = st.number_input("gamma", value=0.2, key="model_preview_img_gamma", help="power low apply on each px")
+                            model_preview_img_gamma_raw = st.number_input("gamma", value=1.0, key="model_preview_img_gamma", help="power low apply on each px")
                             model_preview_img_wl_raw = st.number_input("wavelength in µm", value=3.5, key="model_preview_img_wl")
                         col3, col4 = st.columns(2)
                         with col3:
                             model_preview_clip_lo_raw = st.number_input(
-                                "colormap percentile min", value=0.5, min_value=0., max_value=100.,
+                                "colormap percentile min", value=0., min_value=0., max_value=100.,
                                 key="model_preview_clip_lo",
                                 help="Clips colors below this percentile of the displayed image (independent of gamma).",
                             )
                         with col4:
                             model_preview_clip_hi_raw = st.number_input(
-                                "colormap percentile max", value=99.5, min_value=0., max_value=100.,
+                                "colormap percentile max", value=100., min_value=0., max_value=100.,
                                 key="model_preview_clip_hi",
                             )
 
@@ -286,7 +292,7 @@ def _render_basic_model() -> None:
 
     with colD2:
         if st.session_state.components:
-            if st.button("🗑️ Delete", use_container_width=True):
+            if st.button("🗑️ Delete", type="primary", use_container_width=True):
                 st.session_state.components = [
                     c for c in st.session_state.components
                     if c['name'] != active_name
@@ -311,25 +317,41 @@ def _render_basic_model() -> None:
 
     # ── Sauvegarde ────────────────────────────────────────────────────
     st.write("##### C. Save model")
-    if st.button("✅ Save", type="primary"):
-        read_all_widgets(st.session_state.components)
-        mname = model_name.strip() or "unnamed_model"
-        st.session_state.MODEL[mname] = {
-            'components': [
-                {
-                    'type':           c['type'],
-                    'name':           c['name'],
-                    'initial_values': c['initial_values'].copy(),
-                    'param_ranges':   c['param_ranges'].copy(),
-                    'free_params':    c['free_params'].copy(),
-                    'interpolators':  c.get('interpolators', {}).copy(),
-                    'normalizations': c.get('normalizations', {}).copy(),
-                }
-                for c in st.session_state.components
-            ]
-        }
-        st.success(f"✅ Model « {mname} » saved!")
-        log_event("Model saved", f"{mname} ({len(st.session_state.components)} components)")
+    col_save, col_reset = st.columns(2)
+    with col_save:
+        if st.button("✅ Save", type="primary", use_container_width=True):
+            read_all_widgets(st.session_state.components)
+            mname = model_name.strip() or "unnamed_model"
+            st.session_state.MODEL[mname] = {
+                'components': [
+                    {
+                        'type':           c['type'],
+                        'name':           c['name'],
+                        'initial_values': c['initial_values'].copy(),
+                        'param_ranges':   c['param_ranges'].copy(),
+                        'free_params':    c['free_params'].copy(),
+                        'interpolators':  c.get('interpolators', {}).copy(),
+                        'normalizations': c.get('normalizations', {}).copy(),
+                    }
+                    for c in st.session_state.components
+                ]
+            }
+            st.success(f"✅ Model « {mname} » saved!")
+            log_event("Model saved", f"{mname} ({len(st.session_state.components)} components)")
+    with col_reset:
+        if st.button("🧹 Reset model", type="primary", use_container_width=True,
+                     help="Clear every component below to start a new model from scratch. "
+                          "Does not affect models already saved."):
+            st.session_state.components = []
+            st.session_state.active_comp_name = None
+            # Bump the Model name widget's key suffix — see its own
+            # comment above for why popping the old key alone isn't
+            # enough to actually clear the displayed text.
+            st.session_state['model_name_reset_ctr'] = (
+                st.session_state.get('model_name_reset_ctr', 0) + 1
+            )
+            log_event("Model reset", "working components cleared")
+            st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -359,7 +381,8 @@ def _render_model_import() -> None:
         placeholder="e.g.: imported_model",
         key="model_import_name",
     )
-    do_import = st.button("📥 Import & store", key="btn_model_import")
+    do_import = st.button("📥 Import & store", type="primary", use_container_width=True,
+                          key="btn_model_import")
 
     if model_file is not None:
         try:
@@ -446,6 +469,21 @@ def _render_model_import() -> None:
 # Tab 3 – Interpolators
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _get_model_draft(draft_key: str, model_name: str, model_data: dict) -> list[dict]:
+    """Staging copy of `model_name`'s components, used by the
+    Interpolators/Normalization tabs so that clicking "Apply ..." only
+    edits this draft — never st.session_state.MODEL directly. Nothing is
+    committed to a saved model until "Save model with ..." is clicked.
+    Reset (re-seeded from the real model) only when a DIFFERENT target
+    model is selected, so switching component/parameter within the same
+    model preserves everything applied so far in this session."""
+    draft = st.session_state.setdefault(draft_key, {})
+    if draft.get("model_name") != model_name:
+        draft["model_name"]  = model_name
+        draft["components"]  = copy.deepcopy(model_data.get("components", []))
+    return draft["components"]
+
+
 def _render_interpolators() -> None:
     oim      = get_oim()
     registry = get_registry()
@@ -473,7 +511,7 @@ def _render_interpolators() -> None:
             key="interp_model_sel",
         )
         interp_model_data = st.session_state.MODEL[interp_model_name]
-        interp_comps      = interp_model_data.get("components", [])
+        interp_comps      = _get_model_draft("interp_draft", interp_model_name, interp_model_data)
 
         if not interp_comps:
             st.warning("This model has no components.")
@@ -511,6 +549,7 @@ def _render_interpolators() -> None:
                 free_summary = f" — {n_free}/{n_total} free" if n_total else ""
                 st.info(f"📈 **{p_name}** → `{macro}` ({kw_summary}){free_summary}")
                 if st.button(f"🗑️ Remove interpolator {p_name}",
+                             type="primary", use_container_width=True,
                              key=f"del_interp_{p_name}"):
                     del interp_comp["interpolators"][p_name]
                     st.rerun()
@@ -520,6 +559,11 @@ def _render_interpolators() -> None:
         _render_interp_picker(oim, interp_comp, interp_param, interp_comp_name)
 
     st.write("##### C. Save as a new model")
+    st.caption(
+        "Nothing above is saved yet — 'Apply interpolator' / 'Remove "
+        "interpolator' only edit a draft. Click below to commit it "
+        "(under a new name, or the same name to overwrite)."
+    )
 
     new_interp_name = st.text_input(
         "Save under name",
@@ -529,12 +573,8 @@ def _render_interpolators() -> None:
     )
     if st.button("💾 Save model with interpolators",
                     key="btn_save_interp", type="primary",
-                    width=300):
-        saved = copy.deepcopy(interp_model_data)
-        for i, c in enumerate(saved["components"]):
-            if c["name"] == interp_comp_name:
-                saved["components"][i]["interpolators"] = \
-                    interp_comp.get("interpolators", {})
+                    use_container_width=True):
+        saved = {"components": copy.deepcopy(interp_comps)}
         target = new_interp_name.strip() or f"{interp_model_name}_interp"
         st.session_state.MODEL[target] = saved
         st.success(f"✅ Model **{target}** saved with interpolators!")
@@ -612,7 +652,7 @@ def _render_interp_picker(oim, interp_comp: dict, interp_param: str, interp_comp
     except Exception as exc:
         st.caption(f"Preview unavailable: {exc}")
 
-    if st.button("✅ Apply interpolator", key="btn_apply_interp", use_container_width=True):
+    if st.button("✅ Apply interpolator", type="primary", key="btn_apply_interp", use_container_width=True):
         interp_comp.setdefault("interpolators", {})[interp_param] = {
             "enabled": True, "macro": macro, "kwargs": kwargs, "bounds": bounds,
         }
@@ -804,7 +844,7 @@ def _render_normalization() -> None:
             key="norm_model_sel",
         )
         norm_model_data = st.session_state.MODEL[norm_model_name]
-        norm_comps      = norm_model_data.get("components", [])
+        norm_comps      = _get_model_draft("norm_draft", norm_model_name, norm_model_data)
 
         if len(norm_comps) < 2:
             st.warning(
@@ -849,6 +889,7 @@ def _render_normalization() -> None:
                     f"⚖️ **{p_name}** = {cfg.get('norm', 1.0):g} − ({refs_summary})"
                 )
                 if st.button(f"🗑️ Remove normalization {p_name}",
+                             type="primary", use_container_width=True,
                              key=f"del_norm_{p_name}"):
                     del norm_comp["normalizations"][p_name]
                     st.rerun()
@@ -858,6 +899,11 @@ def _render_normalization() -> None:
         _render_norm_picker(norm_comp, norm_param, norm_comp_name, norm_comps, registry)
 
     st.write("##### C. Save as a new model")
+    st.caption(
+        "Nothing above is saved yet — 'Apply normalization' / 'Remove "
+        "normalization' only edit a draft. Click below to commit it "
+        "(under a new name, or the same name to overwrite)."
+    )
 
     new_norm_name = st.text_input(
         "Save under name",
@@ -867,12 +913,8 @@ def _render_normalization() -> None:
     )
     if st.button("💾 Save model with normalization",
                     key="btn_save_norm", type="primary",
-                    width=300):
-        saved = copy.deepcopy(norm_model_data)
-        for i, c in enumerate(saved["components"]):
-            if c["name"] == norm_comp_name:
-                saved["components"][i]["normalizations"] = \
-                    norm_comp.get("normalizations", {})
+                    use_container_width=True):
+        saved = {"components": copy.deepcopy(norm_comps)}
         target = new_norm_name.strip() or f"{norm_model_name}_norm"
         st.session_state.MODEL[target] = saved
         st.success(f"✅ Model **{target}** saved with normalization!")
@@ -938,7 +980,7 @@ def _render_norm_picker(norm_comp: dict, norm_param: str, norm_comp_name: str,
         st.caption("Select at least one component.parameter to normalize against.")
         return
 
-    if st.button("✅ Apply normalization", key="btn_apply_norm", use_container_width=True):
+    if st.button("✅ Apply normalization", type="primary", key="btn_apply_norm", use_container_width=True):
         norm_comp.setdefault("normalizations", {})[norm_param] = {
             "enabled": True, "norm": norm_val, "refs": refs,
         }
@@ -990,19 +1032,20 @@ def _render_model_summary() -> None:
         st.write(r"$\chi²$ : " + f"{sim.chi2r:.2f}")
         st.write(sim.model)
 
-        col3, col4, col5 = st.columns(3)
-        with col3:
-            st.write("$X$ axis")
-            x_min = st.number_input("Xmin", key="Xmin_CP", value=1.)
-            x_max = st.number_input("Xmax", key="Xmax_CP", value=5.)
-        with col4:
-            st.write("$V²_Y$")
-            vis_y_min = st.number_input("Ymin", key="Ymin_Vis", value=0.)
-            vis_y_max = st.number_input("Ymax", key="Ymax_Vis", value=1.)
-        with col5:
-            st.write("$CP_Y$")
-            cp_y_min = st.number_input("Ymin", key="Ymin_CP", value=-180.)
-            cp_y_max = st.number_input("Ymax", key="Ymax_CP", value=180.)
+        with st.expander("Axis ranges", expanded=False):
+            col3, col4, col5 = st.columns(3)
+            with col3:
+                st.write("$X$ axis")
+                x_min = st.number_input("Xmin", key="Xmin_CP", value=1.)
+                x_max = st.number_input("Xmax", key="Xmax_CP", value=5.)
+            with col4:
+                st.write("$V²_Y$")
+                vis_y_min = st.number_input("Ymin", key="Ymin_Vis", value=0.)
+                vis_y_max = st.number_input("Ymax", key="Ymax_Vis", value=1.)
+            with col5:
+                st.write("$CP_Y$")
+                cp_y_min = st.number_input("Ymin", key="Ymin_CP", value=-180.)
+                cp_y_max = st.number_input("Ymax", key="Ymax_CP", value=180.)
 
     with col2:
         try:
@@ -1031,18 +1074,19 @@ def _render_model_summary() -> None:
     st.markdown("##### Visibility vs baseline")
     vb_col1, vb_col2 = st.columns([1, 2])
     with vb_col1:
-        vb_bmax_raw = st.number_input(
-            "Max baseline (m)", value=200., min_value=1., max_value=1000.,
-            key="ms_vb_bmax",
-        )
-        vb_n_raw = st.number_input(
-            "Number of points", value=200, min_value=10, max_value=1000,
-            key="ms_vb_n",
-        )
-        vb_wl_raw = st.number_input(
-            "Wavelength (µm)", value=3.5, min_value=0.1, max_value=20.,
-            key="ms_vb_wl",
-        )
+        with st.expander("Plot parameters", expanded=False):
+            vb_bmax_raw = st.number_input(
+                "Max baseline (m)", value=200., min_value=1., max_value=1000.,
+                key="ms_vb_bmax",
+            )
+            vb_n_raw = st.number_input(
+                "Number of points", value=200, min_value=10, max_value=1000,
+                key="ms_vb_n",
+            )
+            vb_wl_raw = st.number_input(
+                "Wavelength (µm)", value=3.5, min_value=0.1, max_value=20.,
+                key="ms_vb_wl",
+            )
     with vb_col2:
         try:
             # Widget bounds are cosmetic only — vb_n feeds an array
@@ -1109,7 +1153,7 @@ def _render_model_management() -> None:
         st.write("**Rename a model**")
         model_tbr_raw = st.selectbox("Select model to rename", liste, key="model_TBR")
         new_name_raw  = st.text_input("New name", placeholder="new name", key="rename_input")
-        if st.button("Rename", type="primary", key="btn_rename"):
+        if st.button("Rename", type="primary", use_container_width=True, key="btn_rename"):
             try:
                 model_tbr = choice(model_tbr_raw, liste, "Model to rename")
                 new_name  = text(new_name_raw, "New name", max_len=64)
@@ -1128,7 +1172,7 @@ def _render_model_management() -> None:
     with col2:
         st.write("**Delete a model**")
         model_tbs_raw = st.selectbox("Select model to delete", liste, key="model_TBS")
-        if st.button("Delete", type="primary", key="btn_delete"):
+        if st.button("Delete", type="primary", use_container_width=True, key="btn_delete"):
             try:
                 model_tbs = choice(model_tbs_raw, liste, "Model to delete")
             except InvalidInput as exc:

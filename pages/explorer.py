@@ -111,7 +111,7 @@ def render() -> None:
 
     with col_img:
         st.markdown("##### Image")
-        with st.expander("image parameters", expanded=True):
+        with st.expander("image parameters", expanded=False):
             ic1, ic2 = st.columns(2)
             with ic1:
                 img_dim_raw = st.number_input("dimension in px", value=128, min_value=16, max_value=1024, key="img param dim")
@@ -119,15 +119,15 @@ def render() -> None:
                 wl_um_raw   = st.number_input("wavelength in µm", value=3.5, min_value=0.1,
                                           max_value=20., key="img param wl")
             with ic2:
-                gamma_raw = st.number_input("gamma", value=0.2, key="img param gamma")
-                clip_lo_raw = st.number_input("colormap percentile min", value=0.5,
+                gamma_raw = st.number_input("gamma", value=1.0, key="img param gamma")
+                clip_lo_raw = st.number_input("colormap percentile min", value=0.,
                                           min_value=0., max_value=100., key="img param clip lo")
-                clip_hi_raw = st.number_input("colormap percentile max", value=99.5,
+                clip_hi_raw = st.number_input("colormap percentile max", value=100.,
                                           min_value=0., max_value=100., key="img param clip hi")
 
     with col_vis:
         st.markdown("##### Visibility vs baseline")
-        with st.expander("visibility vs baseline parameters", expanded=True):
+        with st.expander("visibility vs baseline parameters", expanded=False):
             vb1, vb2 = st.columns(2)
             with vb1:
                 b_max_raw = st.number_input(

@@ -120,7 +120,9 @@ def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict,
                       extra_files: dict[str, str] | None = None) -> bytes:
     """
     Empaquette les résultats d'un fit dans un zip en mémoire :
-    - le tableau des meilleurs paramètres (CSV)
+    - le tableau des meilleurs paramètres (TXT, tabulé — même format que
+      core/model_export.py's model_to_txt(), donc réimportable directement
+      par la page Modelling > Import model)
     - le script Python reproductible (généré par core/code_generator.py)
     - les figures matplotlib déjà générées, une par entrée de `figures`
     - tout fichier texte additionnel (ex : grille χ² brute d'un grid search)
@@ -139,7 +141,7 @@ def build_results_zip(param_table: pd.DataFrame, code: str, figures: dict,
     """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("best_fit_parameters.csv", param_table.to_csv(index=False))
+        zf.writestr("best_fit_parameters.txt", param_table.to_csv(sep="\t", index=False))
         zf.writestr("reproducible_fit.py", code)
         for name, fig in figures.items():
             if fig is None:

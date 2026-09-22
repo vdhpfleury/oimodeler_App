@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
 import streamlit as st
 
@@ -101,7 +102,7 @@ def render() -> None:
         method_options = ["Random", "scipy χ² Minimization", "Grid search", "Emcee"]
         methode_raw = st.selectbox(
             "Method", method_options,
-            key="fit_method",
+            index=method_options.index("Emcee"), key="fit_method",
         )
 
     try:
@@ -226,7 +227,7 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
         _, tbl = get_result_df(best_model, is_fit=False)
         st.dataframe(tbl, use_container_width=True)
 
-        if st.button("💾 Save this best model", use_container_width=True,
+        if st.button("💾 Save this best model", type="primary", use_container_width=True,
                      key="save_random"):
             update_model_from_fit(
                 f"Best_Random_{model_to_use}", model_to_use,
@@ -286,7 +287,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         st.error("Cannot build model.")
         return
 
-    if st.button("▶️ Run", type="primary"):
+    if st.button("▶️ Run", type="primary", use_container_width=True):
         log_event(
             "Fit run started",
             f"chi2 model={model_to_use} dtypes={','.join(opt_dtypes)}",
@@ -343,13 +344,14 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         st.dataframe(tbl2, use_container_width=True)
 
     # ── Figure 4 panneaux ─────────────────────────────────────────────
-    cc1, cc2 = st.columns(2)
-    with cc1:
-        chi2_clip_lo = st.number_input("Model image colormap percentile min", 0., 100., 0.5,
-                                       key="chi2_img_clip_lo")
-    with cc2:
-        chi2_clip_hi = st.number_input("Model image colormap percentile max", 0., 100., 99.5,
-                                       key="chi2_img_clip_hi")
+    with st.expander("Model image parameters", expanded=False):
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            chi2_clip_lo = st.number_input("Model image colormap percentile min", 0., 100., 0.,
+                                           key="chi2_img_clip_lo")
+        with cc2:
+            chi2_clip_hi = st.number_input("Model image colormap percentile max", 0., 100., 100.,
+                                           key="chi2_img_clip_hi")
     # Widget bounds aren't server-enforced — re-validate before use.
     chi2_clip_lo, chi2_clip_hi = sorted((
         min(max(float(chi2_clip_lo), 0.), 100.),
@@ -392,7 +394,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
         # Astronomical convention: RA increases to the left (East left).
         d_extent_half = d_img.shape[-1] * 0.05 / 2  # matches extract_model_image() default img_scale
-        d_img_disp = d_img[0, 0] ** 0.2
+        d_img_disp = d_img[0, 0] ** 1.0
         d_vmin, d_vmax = np.percentile(d_img_disp, [chi2_clip_lo, chi2_clip_hi])
         axes_cmp[-1].imshow(
             d_img_disp, cmap='hot', origin='lower',
@@ -401,7 +403,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         )
         axes_cmp[-1].set_xlabel("ΔRA (mas)")
         axes_cmp[-1].set_ylabel("ΔDec (mas)")
-        axes_cmp[-1].set_title("Model (γ=0.2)")
+        axes_cmp[-1].set_title("Model")
 
         plt.tight_layout()
         safe_pyplot(st, fig_cmp, use_container_width=True)
@@ -616,10 +618,34 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
     fig_map = None
     with col_map:
         st.markdown("##### χ² map")
-        try:
-            fig_map, _ax_map = r['gfit'].plotMap(
-                plotContour=(len(r['axes']) == 2), plotMinLines=True,
+        is_2d      = len(r['axes']) == 2
+        scale_opts = ["log", "linear"]
+        with st.expander("Plot parameters", expanded=False):
+            yscale_raw = st.selectbox(
+                "χ² scale", scale_opts, key="grid_map_scale",
+                help="Log scale (default) makes the minimum easier to spot "
+                     "when a few points dominate the range.",
             )
+        try:
+            yscale = choice(yscale_raw, scale_opts, "χ² scale")
+        except InvalidInput as exc:
+            st.warning(str(exc))
+            yscale = "log"
+        try:
+            try:
+                plot_kwargs = {"norm": LogNorm()} if (is_2d and yscale == "log") else {}
+                fig_map, _ax_map = r['gfit'].plotMap(
+                    plotContour=is_2d, plotMinLines=True, **plot_kwargs,
+                )
+                if not is_2d and yscale == "log":
+                    _ax_map.set_yscale("log")
+            except ValueError:
+                # LogNorm needs strictly positive data — falls back to
+                # linear if any grid point's chi2r is exactly 0 (a
+                # perfect fit) instead of losing the whole map.
+                fig_map, _ax_map = r['gfit'].plotMap(
+                    plotContour=is_2d, plotMinLines=True,
+                )
             safe_pyplot(st, fig_map, use_container_width=True)
         except Exception:
             logger.exception("Grid map rendering failed")
@@ -652,7 +678,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
     # ── Save / Download — same row, below table + map ───────────────────
     col_save, col_dl = st.columns(2)
     with col_save:
-        if st.button("💾 Save best grid model", use_container_width=True, key="save_grid"):
+        if st.button("💾 Save best grid model", type="primary", use_container_width=True, key="save_grid"):
             update_model_from_fit(
                 f"Best_Grid_{r['model_to_use']}", r['model_to_use'],
                 r['best_grid_model'], chi2r=r['chi2_final'],
@@ -705,8 +731,12 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     default_walkers = min(max(2 * nb_free + 1, 4), MAX_EMCEE_WALKERS)
     default_steps   = min(max(500 * nb_free, 0), MAX_EMCEE_STEPS)
 
-    init_options = ['random', 'gaussian', ""]
-    ec1, ec2, ec3, ec4 = st.columns(4)
+    # Emcee's "gaussian" init mode requires every free parameter to
+    # already have a well-defined range around a sensible starting value —
+    # "random" (uniform over each parameter's bounds) is the only mode
+    # that works unconditionally, so it's the only one offered here.
+    init_mode = "random"
+    ec1, ec2, ec3 = st.columns(3)
     with ec1:
         emcee_dtypes_raw = st.multiselect(
             "Data to fit", FITTABLE_DATA_TYPES,
@@ -724,10 +754,6 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             "Steps", 0, MAX_EMCEE_STEPS, default_steps, key="emcee_steps",
             help=f"Default: min(500×(free parameters), {MAX_EMCEE_STEPS}) = {default_steps} for this model.",
         )
-    with ec4:
-        init_mode_raw = st.selectbox(
-            "Init", init_options, index=0, key="emcee_init",
-        )
 
     try:
         # Widget bounds are cosmetic only. nb_walkers/nb_steps directly
@@ -737,12 +763,11 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         emcee_dtypes = choices(emcee_dtypes_raw, FITTABLE_DATA_TYPES, "Data to fit")
         nb_walkers   = num(nb_walkers_raw, 4, MAX_EMCEE_WALKERS, "Walkers", integer=True)
         nb_steps     = num(nb_steps_raw, 0, MAX_EMCEE_STEPS, "Steps", integer=True)
-        init_mode    = choice(init_mode_raw, init_options, "Init")
     except InvalidInput as exc:
         st.warning(str(exc))
         return
 
-    if st.button("▶️ Run Emcee", type="primary"):
+    if st.button("▶️ Run Emcee", type="primary", use_container_width=True):
         log_event(
             "Fit run started",
             f"emcee model={model_to_use} dtypes={','.join(emcee_dtypes)} "
@@ -835,7 +860,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 key="em_refine_chi2limfact",
             )
 
-        if st.button("🔄 Apply", key="btn_refine_emcee"):
+        if st.button("🔄 Apply", type="primary", use_container_width=True, key="btn_refine_emcee"):
             try:
                 mode        = choice(mode_raw, mode_options, "Mode")
                 discard     = num(discard_raw, 0, max_discard, "Discard", integer=True)
@@ -871,7 +896,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     _, tbl_em = get_result_df(er['best_emcee_model'], is_fit=False)
     st.dataframe(tbl_em, use_container_width=True, height=350)
 
-    if st.button("💾 Save best Emcee model", use_container_width=True,
+    if st.button("💾 Save best Emcee model", type="primary", use_container_width=True,
                  key="save_emcee"):
         update_model_from_fit(
             f"Best_Emcee_{er['model_to_use']}", er['model_to_use'],
@@ -924,27 +949,28 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         st.caption(f"Data type(s) used for this fit: {', '.join(plot_dtypes)}.")
         col_p, col_g = st.columns([1, 2])
         with col_p:
-            st.write("$X$ axis")
-            vt_xs  = st.selectbox("X scale", ["linear", "log"], key="em_vt_xs")
-            vt_xmn = st.number_input("Xmin (cycle/mas)", value=0., key="em_vt_xmn")
-            vt_xmx = st.number_input("Xmax (cycle/mas)", value=5., key="em_vt_xmx")
+            with st.expander("Axis controls", expanded=False):
+                st.write("$X$ axis")
+                vt_xs  = st.selectbox("X scale", ["linear", "log"], key="em_vt_xs")
+                vt_xmn = st.number_input("Xmin (cycle/mas)", value=0., key="em_vt_xmn")
+                vt_xmx = st.number_input("Xmax (cycle/mas)", value=5., key="em_vt_xmx")
 
-            panel_settings = []
-            for dtype in plot_dtypes:
-                st.write(f"**{dtype}**")
-                default_range = _DEFAULT_Y_RANGE.get(dtype)
-                auto = st.checkbox(
-                    "Auto Y range", value=default_range is None, key=f"em_vt_{dtype}_auto",
-                )
-                yscale = st.selectbox(
-                    "Y scale", ["linear", "log"], key=f"em_vt_{dtype}_yscale",
-                )
-                ymin = ymax = None
-                if not auto:
-                    lo_default, hi_default = default_range or (0.0, 1.0)
-                    ymin = st.number_input("Ymin", value=lo_default, key=f"em_vt_{dtype}_ymin")
-                    ymax = st.number_input("Ymax", value=hi_default, key=f"em_vt_{dtype}_ymax")
-                panel_settings.append((dtype, yscale, ymin, ymax))
+                panel_settings = []
+                for dtype in plot_dtypes:
+                    st.write(f"**{dtype}**")
+                    default_range = _DEFAULT_Y_RANGE.get(dtype)
+                    auto = st.checkbox(
+                        "Auto Y range", value=default_range is None, key=f"em_vt_{dtype}_auto",
+                    )
+                    yscale = st.selectbox(
+                        "Y scale", ["linear", "log"], key=f"em_vt_{dtype}_yscale",
+                    )
+                    ymin = ymax = None
+                    if not auto:
+                        lo_default, hi_default = default_range or (0.0, 1.0)
+                        ymin = st.number_input("Ymin", value=lo_default, key=f"em_vt_{dtype}_ymin")
+                        ymax = st.number_input("Ymax", value=hi_default, key=f"em_vt_{dtype}_ymax")
+                    panel_settings.append((dtype, yscale, ymin, ymax))
         with col_g:
             try:
                 sim_plot = oim.oimSimulator(data=data, model=er['best_emcee_model'])
@@ -967,24 +993,25 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         img_cmap_options = ["hot", "inferno", "viridis", "plasma", "gray", "afmhot"]
         col_p, col_g = st.columns([1, 2])
         with col_p:
-            img_gamma_raw = st.slider("Gamma γ", 0.05, 1.0, 0.2, 0.05, key="em_img_gamma")
-            img_cmap_raw  = st.selectbox(
-                "Colormap", img_cmap_options,
-                key="em_img_cmap",
-            )
-            img_size_raw  = st.number_input("Image size (px)", 64, 512, 128,
-                                        step=64, key="em_img_size")
-            img_scale_raw = st.number_input("Scale (mas/px)", 0.1, 10., 1.,
-                                        step=0.1, key="em_img_scale")
-            use_wl    = st.checkbox("Filter on λ", value=False, key="em_img_use_wl")
-            wl_val_raw = 3.5
-            if use_wl:
-                wl_val_raw = st.number_input("λ (µm)", value=3.5, step=0.1,
-                                         key="em_img_wl")
-            img_clip_lo = st.number_input("Colormap percentile min", 0., 100., 0.5,
-                                          key="em_img_clip_lo")
-            img_clip_hi = st.number_input("Colormap percentile max", 0., 100., 99.5,
-                                          key="em_img_clip_hi")
+            with st.expander("Image parameters", expanded=False):
+                img_gamma_raw = st.slider("Gamma γ", 0.05, 1.0, 1.0, 0.05, key="em_img_gamma")
+                img_cmap_raw  = st.selectbox(
+                    "Colormap", img_cmap_options,
+                    key="em_img_cmap",
+                )
+                img_size_raw  = st.number_input("Image size (px)", 64, 512, 128,
+                                            step=64, key="em_img_size")
+                img_scale_raw = st.number_input("Scale (mas/px)", 0.1, 10., 1.,
+                                            step=0.1, key="em_img_scale")
+                use_wl    = st.checkbox("Filter on λ", value=False, key="em_img_use_wl")
+                wl_val_raw = 3.5
+                if use_wl:
+                    wl_val_raw = st.number_input("λ (µm)", value=3.5, step=0.1,
+                                             key="em_img_wl")
+                img_clip_lo = st.number_input("Colormap percentile min", 0., 100., 0.,
+                                              key="em_img_clip_lo")
+                img_clip_hi = st.number_input("Colormap percentile max", 0., 100., 100.,
+                                              key="em_img_clip_hi")
         with col_g:
             try:
                 # Widget bounds are cosmetic only — img_size/img_scale feed

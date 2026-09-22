@@ -57,7 +57,7 @@ Verify that all files are present:
 ls
 ```
 You should see something similar to:
-- 3_test.py   
+- app.py   
 - extlaws 
 - README.md  
 - requirements.txt
@@ -81,7 +81,7 @@ Note: using a virtual environment is recommended but optional.
 ### 5. Run the app
 To start the application, run the following command from the repository directory:
 ```
-streamlit run 3_test.py
+streamlit run app.py
 ```
 
 Your default web browser should automatically open and display the application interface.
