@@ -181,7 +181,7 @@ def _render_filter_section() -> None:
             n_active = len(st.session_state.applied_filters)
             if n_active:
                 st.caption(f"{n_active} filter(s) currently applied.")
-                if st.button("↩️ Reset filters", use_container_width=True):
+                if st.button("↩️ Reset filters", type="primary", use_container_width=True):
                     st.session_state.applied_filters = []
                     log_event("Filters reset", "manual")
                     st.rerun()
@@ -550,49 +550,68 @@ def _render_diagnostic_plot(build_plot, download_filename: str | None = None,
 
 def _render_custom_plot(data) -> None:
     x_options = ["SPAFREQ", "EFF_WAVE"]
-    y_options = ["VIS2DATA", "VISAMP", "VISPHI", "T3AMP", "T3PHI", "FLUXDATA"]
+    # "UV plane" isn't a real oimPlot yname — selecting it switches the
+    # whole panel to ax.uvplot(data, color=...) instead of ax.oiplot(...),
+    # so X quantity/unit (meaningless for a uv-coverage plot) are hidden.
+    observable_options = ["UV plane", "VIS2DATA", "VISAMP", "VISPHI", "T3AMP", "T3PHI", "FLUXDATA"]
     xunit_options = {
         "SPAFREQ":  ["cycle/mas", "cycle/rad", "cycle/arcsec", "m", "km"],
         "EFF_WAVE": ["micron", "nm", "m", "Angstrom"],
     }
-    color_options  = ["byFile", "byBaseline", "byConfiguration", "byArrname"]
-    marker_options = [".", "o", "+", "x", "s", "^", "none"]
+    # byInsname (a real oimPlot color mode) was missing here. A continuous
+    # colormap by wavelength isn't offered: oimodeler's oiplot only
+    # supports these categorical color modes (getColorIndices) — no
+    # continuous-by-EFF_WAVE mode exists to delegate to.
+    color_options  = ["byFile", "byBaseline", "byConfiguration", "byArrname", "byInsname"]
+    marker_options = ["none", ".", "o", "+", "x", "s", "^"]
 
     col_params, col_plot = st.columns([1, 2])
     with col_params:
-        x_quantity_raw = st.selectbox("X quantity", x_options, key="custom_x_quantity")
-        y_quantity_raw = st.selectbox("Y quantity", y_options, key="custom_y_quantity")
-        xunit_raw      = st.selectbox("X unit", xunit_options[choice(x_quantity_raw, x_options, "X quantity")],
-                                      key="custom_xunit")
+        observable_raw = st.selectbox("Observable", observable_options, key="custom_y_quantity")
+        is_uv          = observable_raw == "UV plane"
+        if not is_uv:
+            x_quantity_raw = st.selectbox("X quantity", x_options, key="custom_x_quantity")
+            xunit_raw      = st.selectbox(
+                "X unit", xunit_options[choice(x_quantity_raw, x_options, "X quantity")],
+                key="custom_xunit",
+            )
         color_raw      = st.selectbox("Color by", color_options, key="custom_color_choice")
-        marker_raw     = st.selectbox("Marker", marker_options, key="custom_marker")
-        linewidth_raw  = st.number_input("Line width", value=1.0, min_value=0.0, max_value=10.0,
-                                         step=0.5, key="custom_linewidth")
-        alpha          = st.slider("Alpha", 0.0, 1.0, 1.0, key="custom_alpha")
-        errorbar       = st.checkbox("Error bars", value=True, key="custom_errorbar")
-        logscale       = st.checkbox("Log scale (Y)", value=False, key="custom_logscale")
+        if not is_uv:
+            marker_raw     = st.selectbox("Marker", marker_options, key="custom_marker")
+            linewidth_raw  = st.number_input("Line width", value=1.0, min_value=0.0, max_value=10.0,
+                                             step=0.5, key="custom_linewidth")
+            alpha          = st.slider("Alpha", 0.0, 1.0, 1.0, key="custom_alpha")
+            errorbar       = st.checkbox("Error bars", value=True, key="custom_errorbar")
+            logscale       = st.checkbox("Log scale (Y)", value=False, key="custom_logscale")
+        show_grid      = st.checkbox("Show grid", value=False, key="custom_showgrid")
 
     try:
-        x_quantity = choice(x_quantity_raw, x_options, "X quantity")
-        y_quantity = choice(y_quantity_raw, y_options, "Y quantity")
-        xunit      = choice(xunit_raw, xunit_options[x_quantity], "X unit")
-        color      = choice(color_raw, color_options, "Color by")
-        marker     = choice(marker_raw, marker_options, "Marker")
-        linewidth  = num(linewidth_raw, 0.0, 10.0, "Line width")
+        color = choice(color_raw, color_options, "Color by")
+        if not is_uv:
+            x_quantity = choice(x_quantity_raw, x_options, "X quantity")
+            xunit      = choice(xunit_raw, xunit_options[x_quantity], "X unit")
+            observable = choice(observable_raw, observable_options, "Observable")
+            marker     = choice(marker_raw, marker_options, "Marker")
+            linewidth  = num(linewidth_raw, 0.0, 10.0, "Line width")
     except InvalidInput as exc:
         with col_plot:
             st.warning(str(exc))
         return
 
     def build_custom_plot(ax):
-        ax.oiplot(
-            data, x_quantity, y_quantity, xunit=xunit, color=color,
-            errorbar=errorbar, marker=None if marker == "none" else marker,
-            lw=linewidth, alpha=alpha,
-        )
-        if logscale:
-            ax.set_yscale("log")
-        ax.legend(fontsize=6)
+        if is_uv:
+            ax.uvplot(data, color=color)
+        else:
+            ax.oiplot(
+                data, x_quantity, observable, xunit=xunit, color=color,
+                errorbar=errorbar, marker=None if marker == "none" else marker,
+                lw=linewidth, alpha=alpha,
+            )
+            if logscale:
+                ax.set_yscale("log")
+            ax.legend(fontsize=6)
+        if show_grid:
+            ax.grid(True, alpha=0.3)
 
     with col_plot:
         _render_diagnostic_plot(build_custom_plot, download_filename="custom_plot.png",

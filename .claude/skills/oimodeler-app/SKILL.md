@@ -41,19 +41,19 @@ means step 5, not step 3's target selection, and a change to step 7
 
 ```
 oimodeler_App/
-├── 3_test.py         # real entry point today (streamlit run 3_test.py) — despite
-│                      # its internal header comment reading "# app.py". Renaming
-│                      # this to app.py and removing dev leftovers is tracked (V20).
+├── app.py             # real entry point (streamlit run app.py) — renamed from
+│                      # 3_test.py (V20); removing remaining dev leftovers is
+│                      # still tracked separately.
 ├── core/              # pure logic: model_builder, fitting, code_generator,
 │                      # csv_import, registry, results, component. No `import streamlit`
 │                      # here — keep it that way, it's what makes core/ testable.
 ├── components/        # reusable Streamlit widgets (param_editor, plots)
-├── pages/             # per-tab Streamlit render() functions, wired into 3_test.py's
+├── pages/             # per-tab Streamlit render() functions, wired into app.py's
 │                      # st.tabs(). WARNING: Streamlit auto-discovers pages/ as a
 │                      # multipage app, so these are also reachable directly by URL,
 │                      # bypassing init_session_state(). Renaming to views/ is on the
 │                      # security backlog (V11) — until then, never assume a page's
-│                      # render() only runs after 3_test.py's setup.
+│                      # render() only runs after app.py's setup.
 ├── services/          # data_service (OIFITS loading/caching), session (session_state init)
 ├── config/            # constants
 ├── docs/              # security_audit_2026-09.md — read before touching auth/files/perf

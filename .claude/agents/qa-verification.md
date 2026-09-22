@@ -39,7 +39,7 @@ risks, not just security ones — start here when asked for a general sweep:
   `services/` helper.
 - `pages/data.py` has an unused/dead second definition of
   `_get_active_data()`, leftover `test_*` variables, and commented-out
-  `st.write` debug calls (`3_test.py`/`pages/data.py`, tracked as V20).
+  `st.write` debug calls (`app.py`/`pages/data.py`, tracked as V20).
 - Bare `except:`/`except Exception: pass` blocks that swallow a failure and
   leave a stale value in `session_state` instead of surfacing an error
   (`pages/data.py`, `pages/explorer.py`, `core/model_builder.py`).

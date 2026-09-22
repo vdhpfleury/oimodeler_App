@@ -11,8 +11,8 @@ COMP_STYLES: list[str] = ['-', '--', ':', '-.', '-', '--', ':']
 DEFAULT_PARAM_RANGES: dict[str, tuple] = {
     'x': (-50., 50.), 'y': (-50., 50.), 'f': (0., 1.),
     'd': (0., 100.), 'din': (0., 80.), 'dout': (0., 100.),
-    'fwhm': (0., 100.), 'elong': (1., 5.), 'pa': (-180., 180.),
-    'skw': (0., 5.), 'skwPa': (-180., 180.), 'w': (0., 20.),
+    'fwhm': (0., 100.), 'elong': (1., 3.), 'pa': (0., 180.),
+    'skw': (0., 1.), 'skwPa': (0., 180.), 'w': (0., 20.),
     'a': (0., 1.), 'a1': (0., 1.), 'a2': (0., 1.),
     'dx': (0., 50.), 'dy': (0., 50.), 'hlr': (0., 50.),
     'flor': (0., 1.), 'la': (0., 50.), 'fh': (0., 1.),
@@ -52,7 +52,7 @@ MAX_EMCEE_STEPS:      int = 40000
 # Random-search iteration (capped at 1000) — cap the *total* grid (product
 # across all axes) accordingly rather than per-axis alone.
 MAX_GRID_AXIS_POINTS: int = 200
-MAX_GRID_POINTS:      int = 2500
+MAX_GRID_POINTS:      int = 5000
 
 # ── Mapping abréviation CSV → nom complet oimodeler ──────────────────────
 SHORT_TO_OIM: dict[str, str] = {

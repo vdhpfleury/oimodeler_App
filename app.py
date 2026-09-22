@@ -56,7 +56,7 @@ plt.close('all')
 st.set_page_config(
     page_title="OIModeler",
     page_icon="🔭",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="collapsed",
 )
 
