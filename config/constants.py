@@ -2,6 +2,7 @@
 """
 Constantes globales de l'application OIModeler.
 """
+import os
 
 # ── Couleurs et styles pour les graphes multi-composants ──────────────────
 COMP_COLORS: list[str] = ['blue', 'orange', 'green', 'purple', 'brown', 'pink', 'cyan']
@@ -56,6 +57,39 @@ MAX_EMCEE_STEPS:      int = 40000
 # across all axes) accordingly rather than per-axis alone.
 MAX_GRID_AXIS_POINTS: int = 200
 MAX_GRID_POINTS:      int = 5000
+
+# ── Concurrence des ajustements en arrière-plan (corrige V7 — voir
+# docs/security_audit_2026-09.md §4.4 et services/jobs.py) ─────────────────
+# Chaque fit tourne désormais dans son propre process (voir services/jobs.py)
+# plutôt qu'en ligne dans le thread Streamlit — ceci borne le nombre de
+# process lourds (numpy/scipy/emcee) tournant simultanément, pas le nombre
+# de sessions Streamlit (qui restent, elles, bon marché). Pensé pour ~30
+# utilisateurs publics simultanés, pas pour un cluster : un process par cœur
+# CPU disponible (moins un, laissé au serveur Streamlit lui-même /
+# WebSocket / rendu), borné entre 2 et 4 pour rester raisonnable aussi bien
+# sur un petit conteneur que sur une grosse machine.
+MAX_CONCURRENT_FITS: int = max(2, min(4, (os.cpu_count() or 4) - 1))
+
+# Plafond absolu, en secondes, avant qu'un job soit considéré comme bloqué
+# et son process terminé de force — un filet de sécurité, pas une limite
+# normale (un Emcee à 64 marcheurs × 40000 pas peut légitimement prendre
+# plusieurs heures selon le modèle). Ajuster selon le matériel réel de
+# déploiement.
+FIT_JOB_TIMEOUT_SECONDS: float = 3 * 3600  # 3 h
+
+# Si le worker n'a écrit AUCUNE mise à jour de progression depuis ce délai,
+# son process est considéré mort (plantage, OOM-kill silencieux, deadlock)
+# et terminé — indépendant du plafond absolu ci-dessus, qui lui ne se
+# déclenche que pour un job qui *avance* mais prend simplement trop
+# longtemps. Les callbacks de progression de core/fitting.py écrivent bien
+# plus souvent que ça pour toutes les méthodes (voir core/fit_worker.py).
+FIT_JOB_HEARTBEAT_SECONDS: float = 600  # 10 min
+
+# Anti-double-clic / anti-resoumission accidentelle par session (pas un
+# vrai throttle — c'est MAX_CONCURRENT_FITS qui protège le serveur ; ceci
+# évite juste qu'un double-clic ou un rerun Streamlit ne lance deux jobs
+# pour la même action utilisateur).
+FIT_SUBMIT_COOLDOWN_SECONDS: float = 5
 
 # ── Mapping abréviation CSV → nom complet oimodeler ──────────────────────
 SHORT_TO_OIM: dict[str, str] = {
