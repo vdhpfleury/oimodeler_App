@@ -14,7 +14,7 @@ Simplest way to get in interferometric data modelisation !
 Open a terminal and run:
 
 ```
-python3 --verison
+python3 --version
 ```
 If your Python version is 3.9 or higher, you can proceed. Otherwise, install a newer version from the official Python website: (see [python website](https://www.python.org/downloads/)). After installation, make sure Python is added to your system PATH environment variable.
 
