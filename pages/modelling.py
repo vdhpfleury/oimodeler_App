@@ -119,7 +119,7 @@ def _render_basic_model() -> None:
                             for c in loaded["components"]
                         ]
                         st.session_state.active_comp_name = (
-                            st.session_state.components[0]["name"]
+                            st.session_state.components[-1]["name"]
                             if st.session_state.components else None
                         )
                         st.success(f"✅ Model **{model_to_load}** loaded for editing!")
@@ -264,6 +264,10 @@ def _render_basic_model() -> None:
         else:
             st.info("Add a component to see the preview.")
 
+    if st.session_state.components:
+        types = [c['type'] for c in st.session_state.components]
+        st.caption(f"{len(types)} component(s): " + ", ".join(types))
+
     # ── C. Éditeur de composant actif ──────────────────────────────────
     st.markdown("##### B. Component configuration",
                 help="Select the component to configure below")
@@ -278,9 +282,21 @@ def _render_basic_model() -> None:
 
     colD1, colD2 = st.columns([3, 1])
     with colD1:
+        # Pre-seed the widget's own session_state entry from
+        # active_comp_name before instantiating it — passing a freshly
+        # computed `index=` alone isn't enough: once this selectbox's
+        # auto-generated key has been used before with the same `options`
+        # list (e.g. reloading a model whose component names are unchanged
+        # from an earlier working session), Streamlit's frontend keeps
+        # showing that earlier selection and ignores a new `index=` on
+        # subsequent reruns (same class of gotcha as the Reset-model
+        # text_input fix above).
+        active_key = "active_comp_selectbox"
+        if st.session_state.get(active_key) != st.session_state.active_comp_name:
+            st.session_state[active_key] = st.session_state.active_comp_name
         active_name = st.selectbox(
             "Select active component:",
-            options=names, index=0,
+            options=names, key=active_key,
             label_visibility="collapsed",
         )
         if active_name != st.session_state.active_comp_name:
