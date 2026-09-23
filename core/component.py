@@ -52,7 +52,15 @@ class ComponentConfig:
         }
         self.free_params = (
             free_params if free_params is not None
-            else [p for p in self.param_names if p not in ('x', 'y')]
+            # 'dim' (image/grid resolution, oimTempGrad/oimExpRing/
+            # oimInnerRim) is an integer rendering knob, not a physically
+            # meaningful fit parameter — leaving it free by default lets
+            # scipy/Emcee write a numpy.float64 into it every iteration
+            # (only create_instance() rounds it to int, and only at
+            # instance-creation time), crashing oimodeler's own
+            # np.linspace(..., dim) calls with "'numpy.float64' object
+            # cannot be interpreted as an integer".
+            else [p for p in self.param_names if p not in ('x', 'y', 'dim')]
         )
 
     # ------------------------------------------------------------------
@@ -102,7 +110,13 @@ class ComponentConfig:
         instance = self.component_class(**full)
 
         for param_name, param_obj in instance.params.items():
-            short = param_name.split('_')[-1]
+            # Most oimodeler param names are plain (e.g. "f", "elong"), so a
+            # naive split('_')[-1] usually recovers them from a prefixed
+            # form. But 'kappa_abs' (oimTempGrad) already contains an
+            # underscore and IS the full name in self.param_names — splitting
+            # it would wrongly yield "abs" and silently skip it below, so
+            # try the exact name first.
+            short = param_name if param_name in self.param_names else param_name.split('_')[-1]
             if short not in self.param_names:
                 continue
             if self.normalizations.get(short, {}).get('enabled', False):
@@ -173,7 +187,7 @@ def make_comp_dict(comp_type: str, comp_name: str, registry: dict) -> dict:
         'params':         params.copy(),
         'initial_values': {p: DEFAULT_PARAM_INIT.get(p, 0.) for p in params},
         'param_ranges':   {p: DEFAULT_PARAM_RANGES.get(p, (0., 100.)) for p in params},
-        'free_params':    [p for p in params if p not in ('x', 'y')],
+        'free_params':    [p for p in params if p not in ('x', 'y', 'dim')],
         'interpolators':  {},
         'normalizations': {},
     }

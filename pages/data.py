@@ -483,9 +483,20 @@ def _render_diagnostics() -> None:
             st.warning("Could not render diagnostic plots for the current selection.")
             return
 
+        diag_x_options = ["SPAFREQ", "EFF_WAVE"]
+        diag_x_labels  = {"SPAFREQ": "Spatial frequency", "EFF_WAVE": "Wavelength"}
         color_options = ["byFile", "byBaseline", "byConfiguration", "byArrname"]
-        color_raw = st.selectbox("Color by", color_options, key="diag_color_choice")
+
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            color_raw = st.selectbox("Color by", color_options, key="diag_color_choice")
+        with dc2:
+            diag_x_raw = st.selectbox(
+                "X axis (VIS2DATA / T3PHI)", diag_x_options,
+                format_func=lambda x: diag_x_labels[x], key="diag_x_choice",
+            )
         color_choice = choice(color_raw, color_options, "Color by")
+        diag_x_choice = choice(diag_x_raw, diag_x_options, "X axis")
 
         # Each panel is independently optional: one missing/unsupported
         # observable (e.g. no OI_FLUX table, common on some MATISSE
@@ -499,11 +510,13 @@ def _render_diagnostics() -> None:
         with row1c2:
             st.caption("Squared visibility (VIS2DATA)")
             _render_diagnostic_plot(lambda ax: _oiplot(
-                ax, data, "SPAFREQ", "VIS2DATA", "cycle/mas", color_choice))
+                ax, data, diag_x_choice, "VIS2DATA",
+                "cycle/mas" if diag_x_choice == "SPAFREQ" else "micron", color_choice))
         with row2c1:
             st.caption("Closure phase (T3PHI)")
             _render_diagnostic_plot(lambda ax: _oiplot(
-                ax, data, "SPAFREQ", "T3PHI", "cycle/rad", color_choice))
+                ax, data, diag_x_choice, "T3PHI",
+                "cycle/rad" if diag_x_choice == "SPAFREQ" else "micron", color_choice))
         with row2c2:
             st.caption("Total flux (FLUXDATA)")
             _render_diagnostic_plot(lambda ax: _oiplot(

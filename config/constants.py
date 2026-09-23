@@ -20,7 +20,10 @@ DEFAULT_PARAM_RANGES: dict[str, tuple] = {
     'ks': (0., 10.), 'wl0': (0., 10e-6), 'lkr': (0., 1.),
     'dim': (16, 1024), 'P': (0.01, 100), 'width': (0.001, 1000),
     # oimTempGrad / oim4CLDD / oimExpRing / oimInnerRim
-    'rin': (0., 50.), 'rout': (0., 200.), 'r0': (0., 50.),
+    # rin's lower bound is >0, not 0: oimodeler's default radial grid is
+    # logarithmic, and oimTempGrad raises ValueError("Logarithmic grid
+    # requires rin > 0.") for rin<=0 on every model evaluation.
+    'rin': (0.01, 50.), 'rout': (0., 200.), 'r0': (0., 50.),
     'T0': (10., 3000.), 'Mdust': (0., 5.), 'q': (-1., 0.), 'p': (-3., 3.),
     'kappa_abs': (0., 10.), 'dist': (0., 10000.),
     'a3': (0., 1.), 'a4': (0., 1.), 'h': (0., 10.), 'incl': (0., 90.),

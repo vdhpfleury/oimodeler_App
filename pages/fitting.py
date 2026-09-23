@@ -18,7 +18,7 @@ from __future__ import annotations
 import copy
 import logging
 import re
-from pathlib import Path
+import uuid
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -27,6 +27,7 @@ import streamlit as st
 
 from services.data_service import get_oim, get_registry, get_active_data
 from services.activity_log import log_event, get_log_text
+from services.storage import session_dir
 from config.constants import (
     FITTABLE_DATA_TYPES, MAX_EMCEE_WALKERS, MAX_EMCEE_STEPS,
     MAX_GRID_AXIS_POINTS, MAX_GRID_POINTS,
@@ -321,6 +322,21 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             st.error(f"Minimization error: {exc}")
             log_event("Fit run failed", f"chi2: {exc}")
 
+    # ── Code reproductible — right after Run, visible without a click,
+    # so it can be copied whether or not the fit has been run yet ───────
+    with st.expander("Reproducible Python code", expanded=True):
+        st.code(
+            generate_fitting_code(
+                method="chi2",
+                result={"dtypes": opt_dtypes},
+                data_filenames=st.session_state.get("selected_files", []),
+                model_comps=st.session_state.MODEL[model_to_use]["components"],
+                applied_filters=st.session_state.get("applied_filters", []),
+                registry=registry,
+            ),
+            language="python",
+        )
+
     if st.session_state.chi2_result is None:
         return
 
@@ -411,18 +427,6 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
     except Exception as exc:
         st.warning(f"Cannot display comparison: {exc}")
-
-    # ── Code reproductible ────────────────────────────────────────────
-    with st.expander("Reproducible Python code", expanded=False):
-        code = generate_fitting_code(
-            method="chi2",
-            result={"dtypes": r['dtypes']},
-            data_filenames=st.session_state.get("selected_files", []),
-            model_comps=st.session_state.MODEL[r["model_to_use"]]["components"],
-            applied_filters=st.session_state.get("applied_filters", []),
-            registry=registry,
-        )
-        st.code(code, language="python")
 
     if st.button("💾 Save best χ² model", use_container_width=True,
                  key="save_chi2", type="primary"):
@@ -597,6 +601,20 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
             st.error(f"Grid search error: {exc}")
             log_event("Fit run failed", f"grid: {exc}")
 
+    # ── Code reproductible — right after Run, visible without a click ───
+    with st.expander("Reproducible Python code", expanded=True):
+        st.code(
+            generate_fitting_code(
+                method="grid",
+                result={"dtypes": grid_dtypes, "axes": axes},
+                data_filenames=st.session_state.get("selected_files", []),
+                model_comps=st.session_state.MODEL[model_to_use]["components"],
+                applied_filters=st.session_state.get("applied_filters", []),
+                registry=registry,
+            ),
+            language="python",
+        )
+
     if st.session_state.grid_result is None:
         return
 
@@ -696,10 +714,6 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
             key="download_grid_zip",
         )
 
-    # ── Code reproductible ────────────────────────────────────────────
-    with st.expander("Reproducible Python code", expanded=False):
-        st.code(code, language="python")
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Emcee
@@ -784,18 +798,33 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 data, model_emcee,
                 nwalkers=nb_walkers, dataTypes=emcee_dtypes,
             )
-            sampler_path = Path("/tmp/sampler_emcee.txt")
-            sampler_path.unlink(missing_ok=True)
+            # Per-session, per-run unique path (services/storage.py's
+            # session_dir()) — a single shared "/tmp/sampler_emcee.txt" used
+            # by every session on the server caused two race conditions
+            # under concurrent fits: one session's pre-run unlink() deleting
+            # the inode another session's HDFBackend had open ("No such
+            # file or directory"), and two sessions' HDFBackend opening the
+            # same path at once ("file is already open for read-only").
+            # Left in place after the run (not unlinked) since "Refine
+            # results" below re-reads it via emfit.getResults() later in
+            # the session; session_dir()'s own TTL-based purge_expired()
+            # reclaims it eventually.
+            sampler_path = session_dir() / f"sampler_{uuid.uuid4().hex}.txt"
             emfit.prepare(init=init_mode, samplerFile=str(sampler_path))
 
             progress_bar = st.progress(0)
             status_box   = st.empty()
             status_box.info("MCMC running …")
-            run_emcee_with_progress(
-                emfit, nb_steps, progress_callback=lambda v: progress_bar.progress(v),
-            )
-            progress_bar.empty()
-            status_box.empty()
+            try:
+                run_emcee_with_progress(
+                    emfit, nb_steps, progress_callback=lambda v: progress_bar.progress(v),
+                )
+            finally:
+                # Always clear the progress UI, including on failure —
+                # otherwise a stale "MCMC running …"/full progress bar was
+                # left on screen underneath the st.error() below.
+                progress_bar.empty()
+                status_box.empty()
 
             st.session_state.emcee_result = {
                 'model_initial':    model_init,
@@ -818,6 +847,25 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         except Exception as exc:
             st.error(f"Emcee error: {exc}")
             log_event("Fit run failed", f"emcee: {exc}")
+
+    # ── Code reproductible — right after Run, visible without a click ───
+    with st.expander("Reproducible Python code", expanded=True):
+        st.code(
+            generate_fitting_code(
+                method="emcee",
+                result={
+                    "dtypes":   emcee_dtypes,
+                    "nwalkers": nb_walkers,
+                    "nsteps":   nb_steps,
+                    "init":     init_mode,
+                },
+                data_filenames=st.session_state.get("selected_files", []),
+                model_comps=st.session_state.MODEL[model_to_use]["components"],
+                applied_filters=st.session_state.get("applied_filters", []),
+                registry=registry,
+            ),
+            language="python",
+        )
 
     if st.session_state.emcee_result is None:
         return
@@ -905,26 +953,27 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         st.success(f"Model **Best_Emcee_{er['model_to_use']}** saved!")
         log_event("Best model saved", f"Best_Emcee_{er['model_to_use']}")
 
-    # ── Code reproductible ────────────────────────────────────────────
-    with st.expander("Reproducible Python code", expanded=False):
-        code = generate_fitting_code(
-            method="emcee",
-            result={
-                "dtypes":      er['dtypes'],
-                "nwalkers":    er['nwalkers'],
-                "nsteps":      er['nsteps'],
-                "init":        er['init'],
-                "mode":        er.get('mode', 'best'),
-                "discard":     er.get('discard', 0),
-                "thin":        er.get('thin', 1),
-                "chi2limfact": er.get('chi2limfact', 20),
-            },
-            data_filenames=st.session_state.get("selected_files", []),
-            model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
-            applied_filters=st.session_state.get("applied_filters", []),
-            registry=registry,
-        )
-        st.code(code, language="python")
+    # Full reproducible code (including any refine mode/discard/thin/
+    # chi2limfact) — no longer shown here as its own expander (moved to
+    # right after the Run button above); kept as a variable since the
+    # results zip download below still bundles it.
+    code = generate_fitting_code(
+        method="emcee",
+        result={
+            "dtypes":      er['dtypes'],
+            "nwalkers":    er['nwalkers'],
+            "nsteps":      er['nsteps'],
+            "init":        er['init'],
+            "mode":        er.get('mode', 'best'),
+            "discard":     er.get('discard', 0),
+            "thin":        er.get('thin', 1),
+            "chi2limfact": er.get('chi2limfact', 20),
+        },
+        data_filenames=st.session_state.get("selected_files", []),
+        model_comps=st.session_state.MODEL[er["model_to_use"]]["components"],
+        applied_filters=st.session_state.get("applied_filters", []),
+        registry=registry,
+    )
 
 
 # ── Résultats ─────────────────────────────────────────────────────
