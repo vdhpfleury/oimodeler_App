@@ -25,7 +25,7 @@ If your Python version is 3.9 or higher, you can proceed. Otherwise, install a n
 
 Run the following command in your terminal:
 ```
-git --verison
+git --version
 ```
 
 This should return something like: git version X.X.X
