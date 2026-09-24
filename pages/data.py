@@ -47,6 +47,7 @@ from core.validation import num, choice, choices, InvalidInput
 from core.filter_registry import FILTER_REGISTRY
 from core.oifits_meta import get_available_values, summarize_oimdata
 from components.plots import safe_pyplot
+from components.flash import queue_flash, show_pending_flash
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,7 @@ def _render_file_upload() -> None:
 
 def _render_filter_section() -> None:
     with st.expander("II. Data info & filters", expanded=True):
+        show_pending_flash("filter_flash")
         # Explicit key: keeps the selection stable and immune to Streamlit
         # regenerating an implicit auto-key for this widget on re-render;
         # also lets us sanitize a stale entry below without touching the
@@ -184,6 +186,7 @@ def _render_filter_section() -> None:
                 if st.button("↩️ Reset filters", type="primary", use_container_width=True):
                     st.session_state.applied_filters = []
                     log_event("Filters reset", "manual")
+                    queue_flash("filter_flash", "✅ Filters reset.")
                     st.rerun()
 
         with col_filter:
@@ -227,6 +230,7 @@ def _render_filter_picker(file_names: list[str], metadata: pd.DataFrame) -> None
             "Filter applied",
             f"{filter_name} targets={kwargs.get('targets')} arr={kwargs.get('arr')}",
         )
+        queue_flash("filter_flash", f"✅ Filter **{filter_name}** applied.")
         st.rerun()
 
 
@@ -578,6 +582,8 @@ def _render_custom_plot(data) -> None:
     color_options  = ["byFile", "byBaseline", "byConfiguration", "byArrname", "byInsname"]
     marker_options = ["none", ".", "o", "+", "x", "s", "^"]
 
+    scale_options = ["linear", "log"]
+
     col_params, col_plot = st.columns([1, 2])
     with col_params:
         observable_raw = st.selectbox("Observable", observable_options, key="custom_y_quantity")
@@ -595,8 +601,28 @@ def _render_custom_plot(data) -> None:
                                              step=0.5, key="custom_linewidth")
             alpha          = st.slider("Alpha", 0.0, 1.0, 1.0, key="custom_alpha")
             errorbar       = st.checkbox("Error bars", value=True, key="custom_errorbar")
-            logscale       = st.checkbox("Log scale (Y)", value=False, key="custom_logscale")
         show_grid      = st.checkbox("Show grid", value=False, key="custom_showgrid")
+
+        # Axis min/max/scale — collapsed by default, same pattern as the
+        # Fitting page's "Axis controls" expander. UV plane has no
+        # meaningful log scale (u/v are signed, centred on 0), so it only
+        # gets range controls; the observable-vs-x plots get both.
+        with st.expander("Axis controls", expanded=False):
+            if not is_uv:
+                xscale_raw = st.selectbox("X scale", scale_options, key="custom_xscale")
+            auto_x = st.checkbox("Auto X range", value=True, key="custom_auto_x")
+            xmin_raw = xmax_raw = None
+            if not auto_x:
+                xmin_raw = st.number_input("Xmin", value=0.0, key="custom_xmin")
+                xmax_raw = st.number_input("Xmax", value=1.0, key="custom_xmax")
+
+            if not is_uv:
+                yscale_raw = st.selectbox("Y scale", scale_options, key="custom_yscale")
+            auto_y = st.checkbox("Auto Y range", value=True, key="custom_auto_y")
+            ymin_raw = ymax_raw = None
+            if not auto_y:
+                ymin_raw = st.number_input("Ymin", value=0.0, key="custom_ymin")
+                ymax_raw = st.number_input("Ymax", value=1.0, key="custom_ymax")
 
     try:
         color = choice(color_raw, color_options, "Color by")
@@ -606,6 +632,12 @@ def _render_custom_plot(data) -> None:
             observable = choice(observable_raw, observable_options, "Observable")
             marker     = choice(marker_raw, marker_options, "Marker")
             linewidth  = num(linewidth_raw, 0.0, 10.0, "Line width")
+            xscale     = choice(xscale_raw, scale_options, "X scale")
+            yscale     = choice(yscale_raw, scale_options, "Y scale")
+        xmin = num(xmin_raw, -1e12, 1e12, "Xmin") if xmin_raw is not None else None
+        xmax = num(xmax_raw, -1e12, 1e12, "Xmax") if xmax_raw is not None else None
+        ymin = num(ymin_raw, -1e12, 1e12, "Ymin") if ymin_raw is not None else None
+        ymax = num(ymax_raw, -1e12, 1e12, "Ymax") if ymax_raw is not None else None
     except InvalidInput as exc:
         with col_plot:
             st.warning(str(exc))
@@ -620,9 +652,13 @@ def _render_custom_plot(data) -> None:
                 errorbar=errorbar, marker=None if marker == "none" else marker,
                 lw=linewidth, alpha=alpha,
             )
-            if logscale:
-                ax.set_yscale("log")
+            ax.set_xscale(xscale)
+            ax.set_yscale(yscale)
             ax.legend(fontsize=6)
+        if xmin is not None and xmax is not None and xmin < xmax:
+            ax.set_xlim(xmin, xmax)
+        if ymin is not None and ymax is not None and ymin < ymax:
+            ax.set_ylim(ymin, ymax)
         if show_grid:
             ax.grid(True, alpha=0.3)
 

@@ -53,6 +53,7 @@ from core.code_generator import generate_fitting_code
 from core.model_export import model_to_txt
 from core.validation import num, choice, choices, InvalidInput
 from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pyplot
+from components.flash import queue_flash, show_pending_flash
 
 logger = logging.getLogger(__name__)
 
@@ -970,6 +971,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     st.markdown("### C — Results")
 
     with st.expander("🔧 Refine results (discard burn-in / χ² threshold)", expanded=False):
+        show_pending_flash("emcee_refine_flash")
         st.caption(
             "Re-processes the existing MCMC chain — no new sampling. Matches "
             "oimodeler's own getResults()/printResults()/walkersPlot()/"
@@ -1022,7 +1024,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                         "Emcee results refined",
                         f"mode={mode} discard={discard} thin={thin} chi2limfact={chi2limfact}",
                     )
-                    st.success("✅ Results refreshed.")
+                    queue_flash("emcee_refine_flash", "✅ Results refreshed.")
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Could not refine results: {exc}")
