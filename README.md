@@ -12,28 +12,27 @@ Simplest way to get in interferometric data modelisation !
 - **Tested with:** Python 3.11 (the version this project is developed and validated against — see `runtime.txt`).
 - **Operating systems:** Windows, macOS, Linux.
 
-## Quick installation
-For users already comfortable with Python and the command line. A virtual environment is used here to avoid dependency conflicts with other Python projects on your machine — see the detailed guide below for the Windows equivalent of `source env_oim/bin/activate`.
+## Install and run — one command
+This is the recommended way to get OIModeler App running locally: one command finds a suitable Python, downloads the app, creates an isolated environment, installs every dependency, verifies the install, and launches it. You still need Python 3.11, 3.12 or 3.13 and Git available on your machine first (see [Compatibility](#compatibility)) — the installer checks for both and tells you exactly what's missing if something is.
 
+macOS / Linux:
 ```bash
-python3 --version                # must be 3.11, 3.12 or 3.13 — see Compatibility below
-git --version
-mkdir OimodelerApp
-cd OimodelerApp
-git clone https://github.com/vdhpfleury/oimodeler_App.git
-cd oimodeler_App
-python3 -m venv env_oim          # use python3.11 (or 3.12/3.13) explicitly if 'python3' resolves to another version
-source env_oim/bin/activate      # Windows: env_oim\Scripts\activate
-pip install -r requirements.txt
-python doctor.py                 # optional: verify the install before launching
-streamlit run app.py
+curl -fsSL https://raw.githubusercontent.com/vdhpfleury/oimodeler_App/main/installer/install.sh | bash
 ```
-Your default web browser should automatically open and display the application interface.
+
+Windows (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/vdhpfleury/oimodeler_App/main/installer/install.ps1 | iex
+```
+If PowerShell blocks that command (execution policy), download `installer/install.ps1` and run `powershell -ExecutionPolicy Bypass -File installer\install.ps1` instead.
+
+Run from an empty folder and it downloads the app for you; run it from inside an existing checkout (`installer/install.sh` or `installer\install.ps1`) and it reuses that checkout instead. Re-running it later is safe — it reuses the environment it already created.
+
+Your default web browser should then automatically open and display the application interface. If a step fails, the installer names the problem — for the fixes, see [Troubleshooting](#troubleshooting).
 
 
-
-## Installation
-Step-by-step instructions if you are new to Python, or if the quick installation above ran into an issue. Each step lists what to expect — if something doesn't match, jump to [Troubleshooting](#troubleshooting).
+## Advanced installation (manual, step by step)
+For contributors, or if you'd rather control each step yourself instead of running the installer above. Each step lists what to expect — if something doesn't match, jump to [Troubleshooting](#troubleshooting).
 
 ### 1. Check your Python version
 Open a terminal and run:
@@ -158,11 +157,13 @@ streamlit run app.py
 
 ## Troubleshooting
 
+*The [one-command installer](#install-and-run--one-command) checks for Python and Git upfront and names exactly what's missing before doing anything else — if you ran it, its own message already told you which of the two entries below applies. The entries below are for the manual/advanced path, or for reading the installer's message in more detail.*
+
 **`python3: command not found` / `'python' is not recognized`**
 Python isn't installed, or wasn't added to your PATH. Reinstall it from [python.org/downloads](https://www.python.org/downloads/) — on Windows, check "Add python.exe to PATH" — then close and reopen your terminal.
 
 **`git: command not found`**
-Git isn't installed. Follow [git-scm.com's installation guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git); on Windows, use the "Git for Windows" installer, which adds Git to your PATH automatically.
+Git isn't installed. Follow [git-scm.com's installation guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git); on Windows, use the "Git for Windows" installer, which adds Git to your PATH automatically. Git is needed even with the one-command installer: `pip` uses it internally to fetch the `oimodeler` library from its GitHub repository.
 
 **`ModuleNotFoundError: No module named 'oimodeler'` (or any other package)**
 Your virtual environment likely isn't active, or step 5 didn't complete. Activate it (step 4), then re-run `pip install -r requirements.txt` and `python doctor.py` to confirm.
