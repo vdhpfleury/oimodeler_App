@@ -128,6 +128,17 @@ def _run_fit_button(label: str, job_key: str, kind: str, build_params,
                 )
             except jobs.JobRejected as exc:
                 st.warning(str(exc))
+            except Exception as exc:
+                # Last-resort net: jobs.submit_fit_job() already turns its
+                # own known failure modes (picklability, process.start())
+                # into JobRejected above, but anything that still escapes
+                # here must not be allowed to crash the whole script run —
+                # that kills the entire page (no error message, no
+                # progress UI, nothing) instead of leaving this one method
+                # in a recoverable "Run" state.
+                logger.exception("Fit job submission failed unexpectedly (kind=%s)", kind)
+                st.error(f"Could not start this fit: {exc}")
+                log_event("Fit run failed", f"{kind}: submission error: {exc}")
             else:
                 handle["params"] = params
                 st.session_state[job_key] = handle
