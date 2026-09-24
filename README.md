@@ -16,6 +16,8 @@ python3 --version
 git --version
 mkdir OimodelerApp
 cd OimodelerApp
+python3 -m venv env_oim
+source env_oim/bin/activate
 git clone https://github.com/vdhpfleury/oimodeler_App.git
 cd oimodeler_App
 ls
