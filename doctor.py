@@ -15,7 +15,12 @@ import importlib
 import sys
 from pathlib import Path
 
-MIN_PYTHON = (3, 9)
+# The floor and ceiling here track wheel availability for the pinned scientific
+# stack (numpy/scipy/astropy/pyarrow in requirements.txt), not an arbitrary
+# choice: outside this range, one or more of them has no prebuilt wheel and
+# pip falls back to a source build that fails on most machines (see the
+# Troubleshooting section in README.md).
+SUPPORTED_PYTHON = ((3, 11), (3, 13))
 
 # name shown to the user -> module name to import (only differs for oimodeler's
 # case since the PyPI/GitHub project and the import name happen to match here)
@@ -46,10 +51,13 @@ FAIL = "[FAIL]"
 def check_python_version():
     version = sys.version_info
     label = f"{version.major}.{version.minor}.{version.micro}"
-    if version[:2] >= MIN_PYTHON:
+    low, high = SUPPORTED_PYTHON
+    if low <= version[:2] <= high:
         print(f"{OK} Python {label}")
         return True
-    print(f"{FAIL} Python {label} (need {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or higher)")
+    print(f"{FAIL} Python {label} (supported: {low[0]}.{low[1]}-{high[0]}.{high[1]})")
+    print("       Prebuilt wheels for numpy/scipy/astropy/pyarrow only cover this")
+    print("       range today; see the Troubleshooting section in README.md.")
     return False
 
 
