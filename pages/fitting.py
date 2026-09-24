@@ -429,7 +429,7 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
     # ── Code reproductible — right after Run, visible without a click,
     # so it can be copied whether or not the fit has been run yet ───────
-    with st.expander("Reproducible Python code", expanded=True):
+    with st.expander("Reproducible Python code", expanded=False):
         st.code(
             generate_fitting_code(
                 method="chi2",
@@ -695,7 +695,7 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
     )
 
     # ── Code reproductible — right after Run, visible without a click ───
-    with st.expander("Reproducible Python code", expanded=True):
+    with st.expander("Reproducible Python code", expanded=False):
         st.code(
             generate_fitting_code(
                 method="grid",
@@ -931,7 +931,7 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     )
 
     # ── Code reproductible — right after Run, visible without a click ───
-    with st.expander("Reproducible Python code", expanded=True):
+    with st.expander("Reproducible Python code", expanded=False):
         st.code(
             generate_fitting_code(
                 method="emcee",
