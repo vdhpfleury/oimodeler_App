@@ -46,6 +46,7 @@ from core.normalization import validate_normalization_refs
 from core.validation import num, choice, choices, text, InvalidInput
 from components.param_editor import render_param_editor, read_all_widgets
 from components.plots import safe_pyplot
+from components.flash import queue_flash, show_pending_flash
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ def _render_basic_model() -> None:
     # ── Colonne A : contrôles ──────────────────────────────────────────
     with col_A:
         st.markdown("##### A. Initialize model")
+        show_pending_flash("basic_model_flash")
 
         # Charger un modèle existant
         if st.session_state.MODEL:
@@ -122,7 +124,7 @@ def _render_basic_model() -> None:
                             st.session_state.components[-1]["name"]
                             if st.session_state.components else None
                         )
-                        st.success(f"✅ Model **{model_to_load}** loaded for editing!")
+                        queue_flash("basic_model_flash", f"✅ Model **{model_to_load}** loaded for editing!")
                         st.rerun()
                     except InvalidInput as exc:
                         st.error(str(exc))
@@ -180,6 +182,7 @@ def _render_basic_model() -> None:
                 )
                 st.session_state.active_comp_name = final
                 log_event("Component added", f"{final} ({comp_type_sel})")
+                queue_flash("basic_model_flash", f"✅ Component **{final}** added.")
                 st.rerun()
 
         img_graph = st.toggle(
@@ -318,6 +321,7 @@ def _render_basic_model() -> None:
                     remaining[0] if remaining else None
                 )
                 log_event("Component removed", active_name)
+                queue_flash("basic_model_flash", f"✅ Component **{active_name}** deleted.")
                 st.rerun()
 
     comp_edit = (
@@ -367,6 +371,7 @@ def _render_basic_model() -> None:
                 st.session_state.get('model_name_reset_ctr', 0) + 1
             )
             log_event("Model reset", "working components cleared")
+            queue_flash("basic_model_flash", "✅ Model reset.")
             st.rerun()
 
 
@@ -380,6 +385,7 @@ def _render_model_import() -> None:
     registry = get_registry()
 
     st.markdown("##### 📂 Import a model from a CSV/TXT file")
+    show_pending_flash("model_import_flash")
 
     model_file = st.file_uploader(
         "Upload a parameter file (CSV or TXT — comma or tab separated)",
@@ -460,12 +466,13 @@ def _render_model_import() -> None:
                     )
                     n_comp     = len(result['components'])
                     comp_names = ', '.join(c['name'] for c in result['components'])
-                    st.success(
+                    queue_flash(
+                        "model_import_flash",
                         f"✅ Model **{target_name}** successfully imported "
-                        f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})"
+                        f"({n_comp} component{'s' if n_comp > 1 else ''}: {comp_names})",
                     )
                     for w in warns:
-                        st.warning(f"⚠️ {w}")
+                        queue_flash("model_import_flash", f"⚠️ {w}", level="warning")
                     log_event("Model imported", f"{target_name} ({n_comp} components)")
                     st.rerun()
         except Exception as exc:
@@ -505,6 +512,7 @@ def _render_interpolators() -> None:
     registry = get_registry()
 
     st.markdown("##### Configure oimodeler interpolators")
+    show_pending_flash("interp_flash")
     st.caption(
         "Assign an `oimInterp` interpolator to a parameter of a component "
         "in an existing model. Any interpolator class oimodeler provides "
@@ -568,6 +576,7 @@ def _render_interpolators() -> None:
                              type="primary", use_container_width=True,
                              key=f"del_interp_{p_name}"):
                     del interp_comp["interpolators"][p_name]
+                    queue_flash("interp_flash", f"✅ Interpolator removed from **{p_name}**.")
                     st.rerun()
 
     with col2:
@@ -672,7 +681,7 @@ def _render_interp_picker(oim, interp_comp: dict, interp_param: str, interp_comp
         interp_comp.setdefault("interpolators", {})[interp_param] = {
             "enabled": True, "macro": macro, "kwargs": kwargs, "bounds": bounds,
         }
-        st.success(f"✅ `{macro}` interpolator applied to **{interp_comp_name}.{interp_param}**")
+        queue_flash("interp_flash", f"✅ `{macro}` interpolator applied to **{interp_comp_name}.{interp_param}**")
         log_event("Interpolator applied", f"{interp_comp_name}.{interp_param} {macro}")
         st.rerun()
 
@@ -845,6 +854,7 @@ def _render_normalization() -> None:
         "oim.oimParamNorm(g2.params[\"f\"])` (see the "
         "[oimParamNorm docs](https://oimodeler.readthedocs.io/en/latest/models.html))."
     )
+    show_pending_flash("norm_flash")
 
     if not st.session_state.MODEL:
         st.info("No model available. Create or import a model first.")
@@ -908,6 +918,7 @@ def _render_normalization() -> None:
                              type="primary", use_container_width=True,
                              key=f"del_norm_{p_name}"):
                     del norm_comp["normalizations"][p_name]
+                    queue_flash("norm_flash", f"✅ Normalization removed from **{p_name}**.")
                     st.rerun()
 
     with col2:
@@ -1000,9 +1011,7 @@ def _render_norm_picker(norm_comp: dict, norm_param: str, norm_comp_name: str,
         norm_comp.setdefault("normalizations", {})[norm_param] = {
             "enabled": True, "norm": norm_val, "refs": refs,
         }
-        st.success(
-            f"✅ Normalization applied to **{norm_comp_name}.{norm_param}**"
-        )
+        queue_flash("norm_flash", f"✅ Normalization applied to **{norm_comp_name}.{norm_param}**")
         log_event("Normalization applied", f"{norm_comp_name}.{norm_param}")
         st.rerun()
 
@@ -1162,6 +1171,7 @@ def _render_model_management() -> None:
         st.warning("No model has been defined yet.")
         return
 
+    show_pending_flash("model_mgmt_flash")
     liste = sorted(st.session_state.MODEL.keys())
     col1, col2 = st.columns(2)
 
@@ -1195,7 +1205,7 @@ def _render_model_management() -> None:
                 st.error(str(exc))
             else:
                 st.session_state.MODEL.pop(model_tbs)
-                st.success(f"Model **{model_tbs}** successfully deleted.")
+                queue_flash("model_mgmt_flash", f"Model **{model_tbs}** successfully deleted.")
                 log_event("Model deleted", model_tbs)
                 st.rerun()
 
