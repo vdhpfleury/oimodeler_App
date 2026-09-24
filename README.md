@@ -8,21 +8,21 @@ Simplest way to get in interferometric data modelisation !
  The application provides an intuitive environment where users can load datasets, construct parametric models (e.g. uniform disks, Gaussians, rings), combine multiple components, and explore parameter spaces interactively.
 
 ## Compatibility
-- **Supported:** Python 3.9 or higher.
-- **Tested with:** Python 3.11 (the version this project is developed and validated against — see `runtime.txt`). Other 3.9+ versions are expected to work but are not routinely tested; if you hit an issue on one of them, please report it.
+- **Supported: Python 3.11, 3.12, or 3.13.** This isn't an arbitrary choice: every scientific package pinned in `requirements.txt` (numpy, scipy, astropy, pyarrow...) ships a prebuilt wheel for exactly this range today. Outside it — Python 3.9/3.10, or 3.14 and newer — `pip install` will try to compile one or more of them from source, which needs a C/C++/Fortran toolchain most machines don't have, and will likely fail. See [Troubleshooting](#troubleshooting) if that happens to you.
+- **Tested with:** Python 3.11 (the version this project is developed and validated against — see `runtime.txt`).
 - **Operating systems:** Windows, macOS, Linux.
 
 ## Quick installation
 For users already comfortable with Python and the command line. A virtual environment is used here to avoid dependency conflicts with other Python projects on your machine — see the detailed guide below for the Windows equivalent of `source env_oim/bin/activate`.
 
 ```bash
-python3 --version
+python3 --version                # must be 3.11, 3.12 or 3.13 — see Compatibility below
 git --version
 mkdir OimodelerApp
 cd OimodelerApp
 git clone https://github.com/vdhpfleury/oimodeler_App.git
 cd oimodeler_App
-python3 -m venv env_oim
+python3 -m venv env_oim          # use python3.11 (or 3.12/3.13) explicitly if 'python3' resolves to another version
 source env_oim/bin/activate      # Windows: env_oim\Scripts\activate
 pip install -r requirements.txt
 python doctor.py                 # optional: verify the install before launching
@@ -46,9 +46,15 @@ Windows:
 ```powershell
 python --version
 ```
-**Expected:** a line such as `Python 3.11.5`. If your Python version is 3.9 or higher, you can proceed. Otherwise, install a newer version from the official Python website (see [python website](https://www.python.org/downloads/)). On Windows, make sure to check **"Add python.exe to PATH"** during installation.
+**Expected:** a line such as `Python 3.11.5`. Any of **3.11, 3.12 or 3.13** works — see [Compatibility](#compatibility) for why this range matters. If you're outside it (an older 3.9/3.10, or a newer 3.14+), install one of the supported versions alongside your current one rather than relying on whichever `python3`/`python` currently points to:
 
-- [x] Python 3.9 or higher, recognized by your terminal
+- **Windows:** download the Python 3.11 (or 3.12/3.13) installer from [python.org/downloads](https://www.python.org/downloads/) — check **"Add python.exe to PATH"** during installation. Multiple versions can coexist; the `py -3.11` launcher picks a specific one.
+- **macOS:** `brew install python@3.11`
+- **Linux (Debian/Ubuntu):** `sudo apt install python3.11 python3.11-venv` (add the [deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa) first if your distribution's repositories don't have it)
+
+Then use that specific interpreter to create the virtual environment in step 4, e.g. `python3.11 -m venv env_oim` instead of `python3 -m venv env_oim`.
+
+- [x] Python 3.11, 3.12 or 3.13, recognized by your terminal
 
 
 ### 2. Check that Git is installed
@@ -112,6 +118,8 @@ py -m venv env_oim
 env_oim\Scripts\activate.bat
 ```
 
+If your default `python3`/`python`/`py` is outside 3.11–3.13 (see step 1), point the same commands at the specific version instead, e.g. `python3.11 -m venv env_oim` (macOS/Linux) or `py -3.11 -m venv env_oim` (Windows).
+
 **Expected:** your terminal prompt now shows an `(env_oim)` prefix. You will need to re-run the activation command every time you open a new terminal, before steps 5 and 7.
 
 - [x] the virtual environment is created and active
@@ -162,13 +170,22 @@ Your virtual environment likely isn't active, or step 5 didn't complete. Activat
 **`streamlit: command not found`**
 Same cause as above: activate the virtual environment (step 4) before running `streamlit run app.py`.
 
-**`pip install -r requirements.txt` fails**
+**`pip install -r requirements.txt` fails while *building* `pyarrow`, `astropy`, `numpy` or `scipy` from source** (errors mentioning `cmake`, `Arrow`, a missing `FindArrow.cmake`, or a C/C++/Fortran compiler)
+This means the virtual environment was created with a Python version outside the supported 3.11–3.13 range (see [Compatibility](#compatibility)) — most often a brand-new release (3.14+) or an old one (3.9/3.10) for which these packages don't publish a prebuilt wheel. pip then falls back to compiling them, which needs system libraries this project doesn't ask you to install, and the build fails. Fix: install Python 3.11, 3.12 or 3.13 (see the callout in step 1), delete the broken environment, and recreate it with that interpreter:
+```
+rm -rf env_oim                   # Windows: rmdir /s /q env_oim
+python3.11 -m venv env_oim       # Windows: py -3.11 -m venv env_oim
+source env_oim/bin/activate      # Windows: env_oim\Scripts\activate
+pip install -r requirements.txt
+```
+
+**`pip install -r requirements.txt` fails for another reason**
 Check your Python and pip versions:
 ```
 python --version
 pip --version
 ```
-Make sure you're on Python 3.9+ (step 1) and connected to the internet — `requirements.txt` installs `oimodeler` directly from GitHub via Git, so step 2 (Git installed) also matters here. Never run `pip install` with `sudo`; use a virtual environment instead, or add `--user` to the command if you skipped one.
+Make sure you're on a supported Python version (3.11–3.13, step 1) and connected to the internet — `requirements.txt` installs `oimodeler` directly from GitHub via Git, so step 2 (Git installed) also matters here. Never run `pip install` with `sudo`; use a virtual environment instead, or add `--user` to the command if you skipped one.
 
 **Port 8501 is already in use**
 Another process (or a previous Streamlit run) is already using it. Start the app on a different port:
