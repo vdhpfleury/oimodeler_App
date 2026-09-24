@@ -16,7 +16,7 @@ set -euo pipefail
 
 REPO_ARCHIVE_URL="https://github.com/vdhpfleury/oimodeler_App/archive/refs/heads/main.tar.gz"
 SUPPORTED_VERSIONS=(3.11 3.12 3.13)
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 
 step() {
   printf "\n[%s/%s] %s\n" "$1" "$TOTAL_STEPS" "$2"
@@ -152,7 +152,51 @@ else
   exit 1
 fi
 
-step 6 "Starting OIModeler App..."
+step 6 "Setting up a desktop shortcut..."
+set +e
+if [ "$(uname -s)" = "Darwin" ]; then
+  SHORTCUT_PATH="$HOME/Desktop/OIModeler App.command"
+  if [ -d "$HOME/Desktop" ]; then
+    cat > "$SHORTCUT_PATH" <<EOF
+#!/bin/bash
+cd "$APP_DIR"
+bash installer/run.sh
+EOF
+    chmod +x "$SHORTCUT_PATH"
+    ok "Desktop shortcut created: double-click \"OIModeler App\" on your Desktop"
+  else
+    fail "No Desktop folder found — skipping the shortcut (not critical)."
+  fi
+else
+  APPS_DIR="$HOME/.local/share/applications"
+  mkdir -p "$APPS_DIR" 2>/dev/null
+  DESKTOP_ENTRY="[Desktop Entry]
+Type=Application
+Name=OIModeler App
+Comment=Interferometric data modelling with oimodeler
+Exec=bash \"$APP_DIR/installer/run.sh\"
+Icon=$APP_DIR/installer/assets/oimodeler.png
+Terminal=true
+Categories=Science;
+"
+  if printf '%s' "$DESKTOP_ENTRY" > "$APPS_DIR/oimodeler-app.desktop" 2>/dev/null; then
+    chmod +x "$APPS_DIR/oimodeler-app.desktop"
+    ok "Added to your applications menu"
+    if [ -d "$HOME/Desktop" ]; then
+      cp "$APPS_DIR/oimodeler-app.desktop" "$HOME/Desktop/oimodeler-app.desktop"
+      chmod +x "$HOME/Desktop/oimodeler-app.desktop"
+      ok "Desktop shortcut created (double-click to relaunch)"
+      echo "      Note: some file managers (e.g. GNOME Files) require you to"
+      echo "      right-click > \"Allow Launching\" the first time — a one-time"
+      echo "      OS security step, not an error."
+    fi
+  else
+    fail "Could not create a desktop shortcut (not critical)."
+  fi
+fi
+set -e
+
+step 7 "Starting OIModeler App..."
 echo
 echo "========================================"
 echo "Installation successful! Launching now."

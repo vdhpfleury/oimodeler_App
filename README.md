@@ -30,6 +30,13 @@ Run from an empty folder and it downloads the app for you; run it from inside an
 
 Your default web browser should then automatically open and display the application interface. If a step fails, the installer names the problem — for the fixes, see [Troubleshooting](#troubleshooting).
 
+**Desktop shortcut.** The installer also sets up a shortcut so you can relaunch the app later without opening a terminal:
+- **Linux:** an "OIModeler App" entry is added to your applications menu, and copied to `~/Desktop` if that folder exists. Some file managers (e.g. GNOME Files) require a one-time right-click → "Allow Launching" on a new desktop shortcut before double-click works — that's an OS security step, not a bug.
+- **macOS:** an `OIModeler App.command` file is placed on your Desktop; double-click it to relaunch (it opens in Terminal, since the app needs one to keep running).
+- **Windows:** an "OIModeler App" shortcut is added to your Desktop.
+
+The shortcut relaunches the app directly (no re-check, no re-download, no re-install) — it's meant for reuse after the one-command install above has run at least once. If the shortcut can't be created for any reason, the installer says so and continues; it isn't required for the app to work.
+
 
 ## Advanced installation (manual, step by step)
 For contributors, or if you'd rather control each step yourself instead of running the installer above. Each step lists what to expect — if something doesn't match, jump to [Troubleshooting](#troubleshooting).

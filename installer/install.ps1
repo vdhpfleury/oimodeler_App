@@ -20,7 +20,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoArchiveUrl = "https://github.com/vdhpfleury/oimodeler_App/archive/refs/heads/main.zip"
 $SupportedVersions = @("3.11", "3.12", "3.13")
-$TotalSteps = 6
+$TotalSteps = 7
 
 function Write-Step($Number, $Message) {
     Write-Host ""
@@ -139,7 +139,24 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Ok "Installation verified"
 
-Write-Step 6 "Starting OIModeler App..."
+Write-Step 6 "Setting up a desktop shortcut..."
+try {
+    $DesktopPath = [Environment]::GetFolderPath("Desktop")
+    $ShortcutPath = Join-Path $DesktopPath "OIModeler App.lnk"
+    $WshShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
+    $Shortcut.TargetPath = "cmd.exe"
+    $Shortcut.Arguments = "/c `"$(Join-Path $AppDir 'installer\run.bat')`""
+    $Shortcut.WorkingDirectory = $AppDir
+    $IconPath = Join-Path $AppDir "installer\assets\oimodeler.ico"
+    if (Test-Path $IconPath) { $Shortcut.IconLocation = $IconPath }
+    $Shortcut.Save()
+    Write-Ok "Desktop shortcut created: double-click ""OIModeler App"" to relaunch"
+} catch {
+    Write-Fail "Could not create a desktop shortcut (not critical) - $($_.Exception.Message)"
+}
+
+Write-Step 7 "Starting OIModeler App..."
 Write-Host ""
 Write-Host "========================================"
 Write-Host "Installation successful! Launching now."
