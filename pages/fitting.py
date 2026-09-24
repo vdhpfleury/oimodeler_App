@@ -4,10 +4,17 @@ Page "Fitting" – Random search, χ² minimization, Emcee MCMC.
 
 Dépendances :
     services/data_service.py  → get_oim(), get_registry(), load_oifits()
+    services/jobs.py          → submit_fit_job(), poll_job(), collect_result()
+                                 (background execution — see _run_fit_button()
+                                 below; a fit never runs inline in this
+                                 script's thread, see docs/security_audit_
+                                 2026-09.md V7)
+    core/fit_worker.py        → run_job() (the actual oimodeler-specific
+                                 worker entry point), reconstruct_chi2()/
+                                 _grid()/_emcee(), compute_initial()
     core/component.py         → ComponentConfig
     core/model_builder.py     → build_oim_model(), decompose_model_flux(),
                                  extract_model_image()
-    core/fitting.py           → random_search()
     core/results.py           → get_result_df(), update_model_from_fit()
     core/code_generator.py    → generate_fitting_code()
     components/plots.py       → plot_flux_decomposition(), copy_axes_lines(),
@@ -27,7 +34,8 @@ import streamlit as st
 
 from services.data_service import get_oim, get_registry, get_active_data
 from services.activity_log import log_event, get_log_text
-from services.storage import session_dir
+from services.storage import session_dir, resolve_selected_paths
+from services import jobs
 from config.constants import (
     FITTABLE_DATA_TYPES, MAX_EMCEE_WALKERS, MAX_EMCEE_STEPS,
     MAX_GRID_AXIS_POINTS, MAX_GRID_POINTS,
@@ -39,11 +47,7 @@ from core.model_builder import (
     extract_model_image,
     apply_normalizations,
 )
-from core.fitting import (
-    random_search,
-    run_grid_search_with_progress,
-    run_emcee_with_progress,
-)
+import core.fit_worker as fit_worker
 from core.results import get_result_df, update_model_from_fit, build_results_zip
 from core.code_generator import generate_fitting_code
 from core.model_export import model_to_txt
@@ -64,6 +68,106 @@ _DEFAULT_Y_RANGE: dict[str, tuple[float, float] | None] = {
     "T3PHI":    (-15.0, 15.0),
     "FLUXDATA": None,
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Ajustements en arrière-plan (services/jobs.py + core/fit_worker.py)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# All four methods below submit their fit to a separate, isolated process
+# (services/jobs.py) instead of running it inline in this script's thread —
+# see docs/security_audit_2026-09.md V7. `_run_fit_button()` is the one
+# place that talks to services/jobs.py; each `_render_*()` function below
+# only supplies what's specific to its method: the button label, a job_key
+# (its own st.session_state slot for the in-flight job handle), the
+# picklable `params` dict core/fit_worker.run_job() needs to rebuild
+# data/model/fitter from scratch inside the worker process (oimData holds
+# an open file handle and isn't picklable — see core/fit_worker.py's
+# module docstring), and an `on_done(handle, payload)` callback that turns
+# the worker's plain-data result payload into this method's usual
+# `st.session_state.<method>_result`, exactly as if the fit had just
+# finished running inline. Everything below that point (results tables,
+# plots, save/download buttons) is untouched.
+
+def _run_fit_button(label: str, job_key: str, kind: str, build_params,
+                    on_done, start_detail: str) -> None:
+    """Renders a "Run" button plus, once clicked, a live-progress panel for
+    one background fit job — shared by all four methods below.
+
+    build_params() : called only on click; returns the picklable `params`
+        dict for core/fit_worker.run_job(), or None to abort silently (the
+        caller having already shown its own st.warning/st.error). May
+        raise InvalidInput/jobs.JobRejected — shown as a warning here.
+    on_done(handle, payload) : called once, from the polling fragment,
+        when the job reaches state "done" — must set this method's
+        st.session_state.<method>_result (or equivalent) and its own
+        log_event("Fit run completed", ...) / st.balloons().
+    """
+    error_key = f"{job_key}_error"
+    pending_error = st.session_state.pop(error_key, None)
+    if pending_error:
+        st.error(pending_error)
+
+    running = st.session_state.get(job_key) is not None
+
+    if st.button(label, type="primary", use_container_width=True, disabled=running):
+        try:
+            jobs.check_cooldown(st.session_state)
+            params = build_params()
+        except (InvalidInput, jobs.JobRejected) as exc:
+            st.warning(str(exc))
+            params = None
+
+        if params is not None:
+            job_id = uuid.uuid4().hex
+            job_dir = session_dir() / f"job_{job_id}"
+            try:
+                handle = jobs.submit_fit_job(
+                    target=fit_worker.run_job, args=(kind, params),
+                    job_dir=job_dir, job_id=job_id,
+                )
+            except jobs.JobRejected as exc:
+                st.warning(str(exc))
+            else:
+                handle["params"] = params
+                st.session_state[job_key] = handle
+                log_event("Fit run started", start_detail)
+                st.rerun()
+
+    if st.session_state.get(job_key) is None:
+        return
+
+    @st.fragment(run_every=1.5)
+    def _poll_job() -> None:
+        handle = st.session_state.get(job_key)
+        if handle is None:
+            return
+        status = jobs.poll_job(handle)
+        state = status.get("state", "queued")
+
+        if state in ("queued", "running"):
+            st.progress(min(max(status.get("progress") or 0.0, 0.0), 1.0))
+            st.caption(status.get("message") or "Running…")
+            return
+
+        jobs.release_job(handle)
+        st.session_state[job_key] = None
+
+        if state == "done":
+            try:
+                payload = jobs.collect_result(handle)
+                on_done(handle, payload)
+            except Exception as exc:
+                logger.exception("Fit job finalization failed (kind=%s)", kind)
+                st.session_state[error_key] = f"Error: {exc}"
+                log_event("Fit run failed", f"{kind}: {exc}")
+        else:
+            st.session_state[error_key] = status.get("message") or "Unknown error."
+            log_event("Fit run failed", f"{kind}: {status.get('message')}")
+
+        st.rerun()
+
+    _poll_job()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -162,11 +266,23 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
         st.warning("The selected model is empty.")
         return
 
-    if st.button("🚀 Run random search", type="primary", use_container_width=True):
-        log_event(
-            "Fit run started",
-            f"Random model={model_to_use} n_runs={n_runs} dtypes={','.join(rand_dtypes)}",
-        )
+    def _build_params():
+        return {
+            'model_comps':  copy.deepcopy(model_comps),
+            'file_paths':   resolve_selected_paths(st.session_state.get('selected_files', [])),
+            'filter_specs': st.session_state.get('applied_filters', []),
+            'n_runs':       n_runs,
+            'seed':         seed_val,
+        }
+
+    def _on_done(handle, payload):
+        # Rebuilt from the exact component dicts the job was submitted
+        # with (handle['params']['model_comps']) rather than whatever
+        # model_comps/model_to_use happens to be selected NOW — the model
+        # editor is reachable while this job runs in the background, and a
+        # user changing it mid-fit must not silently mismatch these
+        # results against a different model.
+        job_comps = handle['params']['model_comps']
         configs = [
             ComponentConfig(
                 component_type=c['type'], registry=registry, name=c['name'],
@@ -174,48 +290,33 @@ def _render_random(oim, registry, data, model_to_use: str) -> None:
                 free_params=c['free_params'], interpolators=c.get('interpolators', {}),
                 normalizations=c.get('normalizations', {}),
             )
-            for c in model_comps
+            for c in job_comps
         ]
-        try:
-            data.useFilter = True
-            progress_bar = st.progress(0)
-            status_box   = st.empty()
+        bp, bc, hist = payload['best_params'], payload['best_chi2'], payload['history']
+        best_comps = [cfg.create_instance(oim, bp.get(cfg.name, {})) for cfg in configs]
+        apply_normalizations(oim, configs, best_comps)
+        st.session_state.best_model_comps = [
+            {'type': c['type'], 'name': c['name'],
+             'initial_values': bp.get(c['name'], c['initial_values']),
+             'param_ranges': c['param_ranges'],
+             'free_params': c['free_params'],
+             'interpolators': c.get('interpolators', {}),
+             'normalizations': c.get('normalizations', {})}
+            for c in job_comps
+        ]
+        st.session_state.optimization_done = True
+        st.session_state.best_chi2         = bc
+        st.session_state.history           = hist
+        # Stocke l'objet modèle temporairement pour l'affichage
+        st.session_state['_random_best_model'] = oim.oimModel(*best_comps)
+        log_event("Fit run completed", f"Random best_chi2r={bc:.4f}")
+        st.balloons()
 
-            bp, bc, hist = random_search(
-                oim, data, configs,
-                n_runs=n_runs, seed=seed_val,
-                progress_callback=lambda v: progress_bar.progress(v),
-                status_callback=lambda s: status_box.success(s),
-                warning_callback=lambda w: st.warning(w),
-            )
-            progress_bar.empty()
-            status_box.empty()
-
-            best_comps = [
-                cfg.create_instance(oim, bp.get(cfg.name, {}))
-                for cfg in configs
-            ]
-            apply_normalizations(oim, configs, best_comps)
-            st.session_state.best_model_comps = [
-                {'type': c['type'], 'name': c['name'],
-                 'initial_values': bp.get(c['name'], c['initial_values']),
-                 'param_ranges': c['param_ranges'],
-                 'free_params': c['free_params'],
-                 'interpolators': c.get('interpolators', {}),
-                 'normalizations': c.get('normalizations', {})}
-                for c in model_comps
-            ]
-            st.session_state.optimization_done = True
-            st.session_state.best_chi2         = bc
-            st.session_state.history           = hist
-            # Stocke l'objet modèle temporairement pour l'affichage
-            st.session_state['_random_best_model'] = oim.oimModel(*best_comps)
-            st.success("✅ Optimization complete!")
-            log_event("Fit run completed", f"Random best_chi2r={bc:.4f}")
-            st.balloons()
-        except Exception as exc:
-            st.error(f"Error: {exc}")
-            log_event("Fit run failed", f"Random: {exc}")
+    _run_fit_button(
+        "🚀 Run random search", job_key="random_job", kind="random",
+        build_params=_build_params, on_done=_on_done,
+        start_detail=f"Random model={model_to_use} n_runs={n_runs} dtypes={','.join(rand_dtypes)}",
+    )
 
     if not st.session_state.optimization_done:
         return
@@ -288,39 +389,58 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
         st.error("Cannot build model.")
         return
 
-    if st.button("▶️ Run", type="primary", use_container_width=True):
+    def _build_params():
+        return {
+            'model_comps':  copy.deepcopy(st.session_state.MODEL[model_to_use]["components"]),
+            'file_paths':   resolve_selected_paths(st.session_state.get('selected_files', [])),
+            'filter_specs': st.session_state.get('applied_filters', []),
+            'dtypes':       opt_dtypes,
+            'model_to_use': model_to_use,
+        }
+
+    def _on_done(handle, payload):
+        params = handle['params']
+        # "Before" model/chi2r is recomputed here (not carried over from
+        # pre-submission) so it's guaranteed to match the exact data/model
+        # the job actually ran against — see core/fit_worker.py's
+        # compute_initial() docstring.
+        model_init, chi2_init = fit_worker.compute_initial(oim, registry, params)
+        lmfit = fit_worker.reconstruct_chi2(oim, registry, params, payload)
+        st.session_state.chi2_result = {
+            'model_initial':   model_init,
+            'best_chi2_model': lmfit.simulator.model,
+            'chi2_init':       chi2_init,
+            'chi2_final':      lmfit.simulator.chi2r,
+            'lmfit':           lmfit,
+            'model_to_use':    params['model_to_use'],
+            'dtypes':          params['dtypes'],
+        }
         log_event(
-            "Fit run started",
-            f"chi2 model={model_to_use} dtypes={','.join(opt_dtypes)}",
+            "Fit run completed",
+            f"chi2 chi2r={chi2_init:.4f}->{lmfit.simulator.chi2r:.4f}",
         )
-        data.useFilter = True
-        try:
-            model_init = copy.deepcopy(model_chi2)
-            sim_init   = oim.oimSimulator(data=data, model=model_init)
-            sim_init.compute(computeChi2=True, computeSimulatedData=False)
-            chi2_init  = sim_init.chi2r
+        st.balloons()
 
-            lmfit = oim.oimFitterMinimize(data, model_chi2, dataTypes=opt_dtypes)
-            lmfit.prepare()
-            lmfit.run()
-            st.balloons()
+    _run_fit_button(
+        "▶️ Run", job_key="chi2_job", kind="chi2",
+        build_params=_build_params, on_done=_on_done,
+        start_detail=f"chi2 model={model_to_use} dtypes={','.join(opt_dtypes)}",
+    )
 
-            st.session_state.chi2_result = {
-                'model_initial':   model_init,
-                'best_chi2_model': lmfit.simulator.model,
-                'chi2_init':       chi2_init,
-                'chi2_final':      lmfit.simulator.chi2r,
-                'lmfit':           lmfit,
-                'model_to_use':    model_to_use,
-                'dtypes':          opt_dtypes,
-            }
-            log_event(
-                "Fit run completed",
-                f"chi2 chi2r={chi2_init:.4f}->{lmfit.simulator.chi2r:.4f}",
-            )
-        except Exception as exc:
-            st.error(f"Minimization error: {exc}")
-            log_event("Fit run failed", f"chi2: {exc}")
+    # ── Code reproductible — right after Run, visible without a click,
+    # so it can be copied whether or not the fit has been run yet ───────
+    with st.expander("Reproducible Python code", expanded=True):
+        st.code(
+            generate_fitting_code(
+                method="chi2",
+                result={"dtypes": opt_dtypes},
+                data_filenames=st.session_state.get("selected_files", []),
+                model_comps=st.session_state.MODEL[model_to_use]["components"],
+                applied_filters=st.session_state.get("applied_filters", []),
+                registry=registry,
+            ),
+            language="python",
+        )
 
     # ── Code reproductible — right after Run, visible without a click,
     # so it can be copied whether or not the fit has been run yet ───────
@@ -550,56 +670,58 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         f"({' × '.join(str(a['n']) for a in axes)})"
     )
 
-    if st.button("🧮 Run grid search", type="primary", use_container_width=True):
+    def _build_params():
+        return {
+            'model_comps':  copy.deepcopy(st.session_state.MODEL[model_to_use]["components"]),
+            'file_paths':   resolve_selected_paths(st.session_state.get('selected_files', [])),
+            'filter_specs': st.session_state.get('applied_filters', []),
+            'dtypes':       grid_dtypes,
+            'axes':         axes,
+            'model_to_use': model_to_use,
+        }
+
+    def _on_done(handle, payload):
+        params = handle['params']
+        model_init, chi2_init = fit_worker.compute_initial(oim, registry, params)
+        gfit = fit_worker.reconstruct_grid(oim, registry, params, payload)
+        st.session_state.grid_result = {
+            'model_initial':   model_init,
+            'best_grid_model': gfit.simulator.model,
+            'chi2_init':       chi2_init,
+            'chi2_final':      gfit.simulator.chi2r,
+            'gfit':            gfit,
+            'model_to_use':    params['model_to_use'],
+            'dtypes':          params['dtypes'],
+            'axes':            params['axes'],
+        }
         log_event(
-            "Fit run started",
-            f"grid model={model_to_use} dtypes={','.join(grid_dtypes)} "
-            f"axes={[a['name'] for a in axes]} size={total_points}",
+            "Fit run completed",
+            f"grid chi2r={chi2_init:.4f}->{gfit.simulator.chi2r:.4f}",
         )
-        data.useFilter = True
-        try:
-            model_init = copy.deepcopy(model_grid)
-            sim_init   = oim.oimSimulator(data=data, model=model_init)
-            sim_init.compute(computeChi2=True, computeSimulatedData=False)
-            chi2_init  = sim_init.chi2r
+        st.balloons()
 
-            gfit = oim.oimFitterRegularGrid(data, model_grid, dataTypes=grid_dtypes)
-            grid_param_objs = [free_params[a['name']] for a in axes]
-            gfit.prepare(
-                params=grid_param_objs,
-                min=[a['lo'] for a in axes],
-                max=[a['hi'] for a in axes],
-                steps=[(a['hi'] - a['lo']) / (a['n'] - 1) for a in axes],
-            )
-            progress_bar = st.progress(0)
-            status_box   = st.empty()
-            status_box.info("Grid search running …")
-            run_grid_search_with_progress(
-                gfit, progress_callback=lambda v: progress_bar.progress(v),
-            )
-            progress_bar.empty()
-            status_box.empty()
+    _run_fit_button(
+        "🧮 Run grid search", job_key="grid_job", kind="grid",
+        build_params=_build_params, on_done=_on_done,
+        start_detail=(
+            f"grid model={model_to_use} dtypes={','.join(grid_dtypes)} "
+            f"axes={[a['name'] for a in axes]} size={total_points}"
+        ),
+    )
 
-            st.session_state.grid_result = {
-                'model_initial':   model_init,
-                'best_grid_model': gfit.simulator.model,
-                'chi2_init':       chi2_init,
-                'chi2_final':      gfit.simulator.chi2r,
-                'gfit':            gfit,
-                'model_to_use':    model_to_use,
-                'dtypes':          grid_dtypes,
-                'axes':            axes,
-            }
-            st.success("✅ Grid search complete!")
-            log_event(
-                "Fit run completed",
-                f"grid chi2r={chi2_init:.4f}->{gfit.simulator.chi2r:.4f}",
-            )
-            st.balloons()
-        except Exception as exc:
-            logger.exception("Grid search failed")
-            st.error(f"Grid search error: {exc}")
-            log_event("Fit run failed", f"grid: {exc}")
+    # ── Code reproductible — right after Run, visible without a click ───
+    with st.expander("Reproducible Python code", expanded=True):
+        st.code(
+            generate_fitting_code(
+                method="grid",
+                result={"dtypes": grid_dtypes, "axes": axes},
+                data_filenames=st.session_state.get("selected_files", []),
+                model_comps=st.session_state.MODEL[model_to_use]["components"],
+                applied_filters=st.session_state.get("applied_filters", []),
+                registry=registry,
+            ),
+            language="python",
+        )
 
     # ── Code reproductible — right after Run, visible without a click ───
     with st.expander("Reproducible Python code", expanded=True):
@@ -781,72 +903,61 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         st.warning(str(exc))
         return
 
-    if st.button("▶️ Run Emcee", type="primary", use_container_width=True):
+    def _build_params():
+        # Per-session, per-job unique path (services/storage.py's
+        # session_dir()) — a single shared "/tmp/sampler_emcee.txt" used by
+        # every session on the server caused two race conditions under
+        # concurrent fits: one session's pre-run unlink() deleting the
+        # inode another session's HDFBackend had open ("No such file or
+        # directory"), and two sessions' HDFBackend opening the same path
+        # at once ("file is already open for read-only"). Left in place
+        # after the run (not unlinked) since "Refine results" below
+        # re-reads it via emfit.getResults() later in the session;
+        # session_dir()'s own TTL-based purge_expired() reclaims it
+        # eventually.
+        sampler_path = session_dir() / f"sampler_{uuid.uuid4().hex}.txt"
+        return {
+            'model_comps':  copy.deepcopy(st.session_state.MODEL[model_to_use]["components"]),
+            'file_paths':   resolve_selected_paths(st.session_state.get('selected_files', [])),
+            'filter_specs': st.session_state.get('applied_filters', []),
+            'dtypes':       emcee_dtypes,
+            'nwalkers':     nb_walkers,
+            'nsteps':       nb_steps,
+            'init':         init_mode,
+            'sampler_path': str(sampler_path),
+            'model_to_use': model_to_use,
+        }
+
+    def _on_done(handle, payload):
+        params = handle['params']
+        model_init, chi2_init = fit_worker.compute_initial(oim, registry, params)
+        emfit = fit_worker.reconstruct_emcee(oim, registry, params, payload)
+        st.session_state.emcee_result = {
+            'model_initial':    model_init,
+            'best_emcee_model': emfit.simulator.model,
+            'chi2_init':        chi2_init,
+            'chi2_final':       emfit.simulator.chi2r,
+            'lmfit':            emfit,
+            'model_to_use':     params['model_to_use'],
+            'dtypes':           params['dtypes'],
+            'nwalkers':         params['nwalkers'],
+            'nsteps':           params['nsteps'],
+            'init':             params['init'],
+        }
         log_event(
-            "Fit run started",
-            f"emcee model={model_to_use} dtypes={','.join(emcee_dtypes)} "
-            f"walkers={nb_walkers} steps={nb_steps} init={init_mode}",
+            "Fit run completed",
+            f"emcee chi2r={chi2_init:.4f}->{emfit.simulator.chi2r:.4f}",
         )
-        data.useFilter = True
-        try:
-            model_init = copy.deepcopy(model_emcee)
-            sim_init   = oim.oimSimulator(data=data, model=model_init)
-            sim_init.compute(computeChi2=True, computeSimulatedData=False)
-            chi2_init  = sim_init.chi2r
+        st.balloons()
 
-            emfit = oim.oimFitterEmcee(
-                data, model_emcee,
-                nwalkers=nb_walkers, dataTypes=emcee_dtypes,
-            )
-            # Per-session, per-run unique path (services/storage.py's
-            # session_dir()) — a single shared "/tmp/sampler_emcee.txt" used
-            # by every session on the server caused two race conditions
-            # under concurrent fits: one session's pre-run unlink() deleting
-            # the inode another session's HDFBackend had open ("No such
-            # file or directory"), and two sessions' HDFBackend opening the
-            # same path at once ("file is already open for read-only").
-            # Left in place after the run (not unlinked) since "Refine
-            # results" below re-reads it via emfit.getResults() later in
-            # the session; session_dir()'s own TTL-based purge_expired()
-            # reclaims it eventually.
-            sampler_path = session_dir() / f"sampler_{uuid.uuid4().hex}.txt"
-            emfit.prepare(init=init_mode, samplerFile=str(sampler_path))
-
-            progress_bar = st.progress(0)
-            status_box   = st.empty()
-            status_box.info("MCMC running …")
-            try:
-                run_emcee_with_progress(
-                    emfit, nb_steps, progress_callback=lambda v: progress_bar.progress(v),
-                )
-            finally:
-                # Always clear the progress UI, including on failure —
-                # otherwise a stale "MCMC running …"/full progress bar was
-                # left on screen underneath the st.error() below.
-                progress_bar.empty()
-                status_box.empty()
-
-            st.session_state.emcee_result = {
-                'model_initial':    model_init,
-                'best_emcee_model': emfit.simulator.model,
-                'chi2_init':        chi2_init,
-                'chi2_final':       emfit.simulator.chi2r,
-                'lmfit':            emfit,
-                'model_to_use':     model_to_use,
-                'dtypes':           emcee_dtypes,
-                'nwalkers':         nb_walkers,
-                'nsteps':           nb_steps,
-                'init':             init_mode,
-            }
-            st.success("✅ Emcee complete!")
-            log_event(
-                "Fit run completed",
-                f"emcee chi2r={chi2_init:.4f}->{emfit.simulator.chi2r:.4f}",
-            )
-            st.balloons()
-        except Exception as exc:
-            st.error(f"Emcee error: {exc}")
-            log_event("Fit run failed", f"emcee: {exc}")
+    _run_fit_button(
+        "▶️ Run Emcee", job_key="emcee_job", kind="emcee",
+        build_params=_build_params, on_done=_on_done,
+        start_detail=(
+            f"emcee model={model_to_use} dtypes={','.join(emcee_dtypes)} "
+            f"walkers={nb_walkers} steps={nb_steps} init={init_mode}"
+        ),
+    )
 
     # ── Code reproductible — right after Run, visible without a click ───
     with st.expander("Reproducible Python code", expanded=True):

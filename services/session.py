@@ -63,6 +63,20 @@ _DEFAULTS: dict = {
     # Résultats Grid search (idem)
     'grid_result':          None,
 
+    # Handles de jobs de fit en arrière-plan (services/jobs.py) — dicts
+    # légers (job_id, chemins de statut/résultat, params picklables), pas
+    # d'objet oimodeler vivant ; None quand aucun job n'est en cours pour
+    # cette méthode. Un "_error" en compagnon porte le dernier message
+    # d'échec à afficher une fois (voir pages/fitting.py's _run_fit_button()).
+    'random_job':           None,
+    'random_job_error':     None,
+    'chi2_job':             None,
+    'chi2_job_error':       None,
+    'grid_job':             None,
+    'grid_job_error':       None,
+    'emcee_job':            None,
+    'emcee_job_error':      None,
+
     # Journal d'activité horodaté de la session — jamais affiché à l'écran,
     # inclus tel quel dans les zip de résultats (services/activity_log.py).
     'activity_log':         [],
