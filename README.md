@@ -9,6 +9,22 @@ Simplest way to get in interferometric data modelisation !
 
  The application provides an intuitive environment where users can load datasets, construct parametric models (e.g. uniform disks, Gaussians, rings), combine multiple components, and explore parameter spaces interactively.
 
+## Quick installation
+Run the following command in your terminal:
+```
+python3 --version
+git --version
+mkdir OimodelerApp
+cd OimodelerApp
+cd oimodeler_App
+ls
+pip install -r requirements.txt
+streamlit run app.py
+```
+Your default web browser should automatically open and display the application interface.
+
+
+
 ## Installation
 ### 1. Check your Python version
 Open a terminal and run:
