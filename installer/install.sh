@@ -42,6 +42,18 @@ download_to_stdout() {
   fi
 }
 
+desktop_dir() {
+  # $HOME/Desktop is wrong on many systems: a French-locale Linux desktop's
+  # real folder is $HOME/Bureau (German: Schreibtisch, etc.). xdg-user-dir
+  # (present on virtually every desktop Linux distro) resolves the actual,
+  # localized path; fall back to the English default if it's unavailable.
+  if command -v xdg-user-dir >/dev/null 2>&1; then
+    xdg-user-dir DESKTOP
+  else
+    echo "$HOME/Desktop"
+  fi
+}
+
 find_python() {
   local v c ver
   for v in "${SUPPORTED_VERSIONS[@]}"; do
@@ -134,7 +146,27 @@ source env_oim/bin/activate
 ok "Environment ready ($APP_DIR/env_oim)"
 
 step 4 "Installing dependencies (this can take a few minutes)..."
-if pip install --upgrade pip -q && pip install -r requirements.txt -q; then
+# Always go through "python -m pip", never a bare "pip": once the venv is
+# active, $PATH may still contain another Python's pip ahead of a missing
+# one, and a bare "pip" would silently use that wrong interpreter instead
+# of failing clearly.
+if ! python -m pip --version >/dev/null 2>&1; then
+  fail "pip is not available in this environment."
+  echo
+  echo "      Your Python installation is missing pip/ensurepip — this usually"
+  echo "      means a package like python3.11-venv wasn't installed alongside"
+  echo "      Python itself. Fix:"
+  case "$(uname -s)" in
+    Darwin) echo "        macOS:  brew reinstall python@3.11" ;;
+    Linux)  echo "        Linux:  sudo apt install python3.11-venv" ;;
+    *)      echo "        Any OS: reinstall Python from https://www.python.org/downloads/" ;;
+  esac
+  echo
+  echo "      Then delete the env_oim folder and run this installer again."
+  exit 1
+fi
+
+if python -m pip install --upgrade pip -q && python -m pip install -r requirements.txt -q; then
   ok "Dependencies installed"
 else
   fail "Dependency installation failed — see the error above."
@@ -154,9 +186,10 @@ fi
 
 step 6 "Setting up a desktop shortcut..."
 set +e
+DESKTOP_DIR=$(desktop_dir)
 if [ "$(uname -s)" = "Darwin" ]; then
-  SHORTCUT_PATH="$HOME/Desktop/OIModeler App.command"
-  if [ -d "$HOME/Desktop" ]; then
+  if [ -n "$DESKTOP_DIR" ] && [ -d "$DESKTOP_DIR" ]; then
+    SHORTCUT_PATH="$DESKTOP_DIR/OIModeler App.command"
     cat > "$SHORTCUT_PATH" <<EOF
 #!/bin/bash
 cd "$APP_DIR"
@@ -165,7 +198,7 @@ EOF
     chmod +x "$SHORTCUT_PATH"
     ok "Desktop shortcut created: double-click \"OIModeler App\" on your Desktop"
   else
-    fail "No Desktop folder found — skipping the shortcut (not critical)."
+    fail "No Desktop folder found ($DESKTOP_DIR) — skipping the shortcut (not critical)."
   fi
 else
   APPS_DIR="$HOME/.local/share/applications"
@@ -182,13 +215,16 @@ Categories=Science;
   if printf '%s' "$DESKTOP_ENTRY" > "$APPS_DIR/oimodeler-app.desktop" 2>/dev/null; then
     chmod +x "$APPS_DIR/oimodeler-app.desktop"
     ok "Added to your applications menu"
-    if [ -d "$HOME/Desktop" ]; then
-      cp "$APPS_DIR/oimodeler-app.desktop" "$HOME/Desktop/oimodeler-app.desktop"
-      chmod +x "$HOME/Desktop/oimodeler-app.desktop"
-      ok "Desktop shortcut created (double-click to relaunch)"
+    if [ -n "$DESKTOP_DIR" ] && [ -d "$DESKTOP_DIR" ]; then
+      cp "$APPS_DIR/oimodeler-app.desktop" "$DESKTOP_DIR/oimodeler-app.desktop"
+      chmod +x "$DESKTOP_DIR/oimodeler-app.desktop"
+      ok "Desktop shortcut created in $DESKTOP_DIR (double-click to relaunch)"
       echo "      Note: some file managers (e.g. GNOME Files) require you to"
       echo "      right-click > \"Allow Launching\" the first time — a one-time"
       echo "      OS security step, not an error."
+    else
+      echo "      No Desktop folder found ($DESKTOP_DIR) — only the applications"
+      echo "      menu entry above was created."
     fi
   else
     fail "Could not create a desktop shortcut (not critical)."

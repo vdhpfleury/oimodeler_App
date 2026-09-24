@@ -120,6 +120,15 @@ if (-not (Test-Path "env_oim")) {
 Write-Ok "Environment ready ($AppDir\env_oim)"
 
 Write-Step 4 "Installing dependencies (this can take a few minutes)..."
+python -m pip --version > $null 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "pip is not available in this environment."
+    Write-Host ""
+    Write-Host "      Your Python installation is missing pip/ensurepip. Reinstall"
+    Write-Host "      Python from https://www.python.org/downloads/, then delete"
+    Write-Host "      the env_oim folder and run this installer again."
+    exit 1
+}
 python -m pip install --upgrade pip -q
 python -m pip install -r requirements.txt -q
 if ($LASTEXITCODE -ne 0) {
