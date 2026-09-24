@@ -442,21 +442,6 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
             language="python",
         )
 
-    # ── Code reproductible — right after Run, visible without a click,
-    # so it can be copied whether or not the fit has been run yet ───────
-    with st.expander("Reproducible Python code", expanded=True):
-        st.code(
-            generate_fitting_code(
-                method="chi2",
-                result={"dtypes": opt_dtypes},
-                data_filenames=st.session_state.get("selected_files", []),
-                model_comps=st.session_state.MODEL[model_to_use]["components"],
-                applied_filters=st.session_state.get("applied_filters", []),
-                registry=registry,
-            ),
-            language="python",
-        )
-
     if st.session_state.chi2_result is None:
         return
 
@@ -708,20 +693,6 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
             f"axes={[a['name'] for a in axes]} size={total_points}"
         ),
     )
-
-    # ── Code reproductible — right after Run, visible without a click ───
-    with st.expander("Reproducible Python code", expanded=True):
-        st.code(
-            generate_fitting_code(
-                method="grid",
-                result={"dtypes": grid_dtypes, "axes": axes},
-                data_filenames=st.session_state.get("selected_files", []),
-                model_comps=st.session_state.MODEL[model_to_use]["components"],
-                applied_filters=st.session_state.get("applied_filters", []),
-                registry=registry,
-            ),
-            language="python",
-        )
 
     # ── Code reproductible — right after Run, visible without a click ───
     with st.expander("Reproducible Python code", expanded=True):
