@@ -173,3 +173,23 @@ def test_cooldown_rejects_a_quick_resubmit():
 def test_cooldown_allows_after_it_elapses():
     session_state: dict = {"_last_fit_submit": time.time() - 100}
     jobs.check_cooldown(session_state, cooldown=1.0)  # must not raise
+
+
+def test_unpicklable_args_are_rejected_before_starting_a_process(tmp_path):
+    """The bug this guards against: an unpicklable value buried in a fit's
+    `params` used to blow up ~20 stack frames deep inside
+    multiprocessing.reduction.dump() during process.start(), as an
+    uncaught exception that crashed the whole Streamlit script run (no
+    st.error, no progress UI — see pages/fitting.py's _run_fit_button()).
+    submit_fit_job() must instead catch this itself and raise a plain,
+    catchable NotPicklable — a lambda is a simple, reliable way to
+    reproduce "something pickle.dumps() rejects" without depending on any
+    real fit payload shape."""
+    unpicklable = lambda: None  # noqa: E731 — the point is that it's a closure
+    with pytest.raises(jobs.NotPicklable):
+        jobs.submit_fit_job(
+            target=_fake_worker, args=("ok", unpicklable),
+            job_dir=tmp_path / "unpicklable",
+        )
+    # Nothing should have been registered as active for this rejected submission.
+    assert jobs.active_count() == 0

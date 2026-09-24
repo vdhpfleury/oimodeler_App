@@ -47,6 +47,7 @@ tiny fake `target`, not a real fit).
 """
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import pickle
 import threading
@@ -64,6 +65,8 @@ from config.constants import (
 )
 from core.job_status import read_status
 
+logger = logging.getLogger(__name__)
+
 _CTX = multiprocessing.get_context("spawn")
 
 
@@ -77,6 +80,20 @@ class Busy(JobRejected):
 
 class Cooldown(JobRejected):
     """This session submitted a job too recently."""
+
+
+class NotPicklable(JobRejected):
+    """`target`/`args` can't be sent to a spawned worker process.
+
+    Surfaced as a clean, catchable error instead of letting
+    `process.start()` raise deep inside `multiprocessing.reduction.dump()`
+    — an uncaught exception there crashes the whole Streamlit script run
+    (no st.error, no progress UI, just Streamlit's own generic "this app
+    has encountered an error" page, with the real message redacted on
+    Streamlit Cloud). The real exception is logged server-side (this
+    module has no Streamlit import, so callers must do so) so the actual
+    unpicklable type can be diagnosed from the deployment's own logs.
+    """
 
 
 @dataclass
@@ -133,14 +150,42 @@ def submit_fit_job(target: Callable, args: tuple, job_dir: Path, job_id: str | N
     to `poll_job()` / `collect_result()` / `release_job()` below.
 
     Raises Busy if MAX_CONCURRENT_FITS jobs are already running
-    server-wide. Never blocks waiting for a free slot (see module
-    docstring) — callers should catch JobRejected and show its message.
+    server-wide, and NotPicklable if `target`/`args` can't actually be
+    sent to a spawned process. Never blocks waiting for a free slot (see
+    module docstring) — callers should catch JobRejected and show its
+    message.
     """
     job_id = job_id or uuid.uuid4().hex
     job_dir = Path(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
     status_path = job_dir / "status.json"
     result_path = job_dir / "result.pkl"
+    full_args = (*args, str(status_path), str(result_path))
+
+    # Fail fast, before touching the concurrency count, with a clear
+    # message and the real cause in the server log — otherwise this
+    # exact failure surfaces 20+ stack frames deep inside
+    # multiprocessing.reduction.dump() during process.start() below,
+    # where an uncaught exception crashes the whole Streamlit script run
+    # instead of being one more thing pages/fitting.py can turn into an
+    # st.error(). Doesn't perfectly replicate process.start()'s own
+    # pickling (e.g. it never touches the Process object's authkey), but
+    # catches the actual failure mode this exists for: something inside
+    # `params` (a stray live object, a closure, ...) that pickle.dumps()
+    # itself already rejects.
+    try:
+        pickle.dumps((target, full_args))
+    except Exception as exc:
+        logger.exception(
+            "Fit job payload is not picklable (kind/target=%r) — "
+            "see traceback above for the actual offending type.",
+            getattr(target, "__qualname__", target),
+        )
+        raise NotPicklable(
+            "This fit's configuration couldn't be sent to a background "
+            "worker process. This is an internal error, not something "
+            "wrong with your inputs — please report it."
+        ) from exc
 
     with _lock:
         _prune_active()
@@ -150,13 +195,17 @@ def submit_fit_job(target: Callable, args: tuple, job_dir: Path, job_id: str | N
                 f"{MAX_CONCURRENT_FITS} fits at once. Please try again "
                 f"in a minute."
             )
-        process = _CTX.Process(
-            target=target,
-            args=(*args, str(status_path), str(result_path)),
-            daemon=True,
-        )
+        process = _CTX.Process(target=target, args=full_args, daemon=True)
         started = time.time()
-        process.start()
+        try:
+            process.start()
+        except Exception as exc:
+            logger.exception("multiprocessing.Process.start() failed for a fit job.")
+            raise NotPicklable(
+                "Could not start a background worker process for this "
+                "fit. This is an internal/deployment error, not something "
+                "wrong with your inputs — please report it."
+            ) from exc
         _active[job_id] = _ActiveJob(
             process=process, status_path=status_path, started=started,
             timeout=timeout, heartbeat_timeout=heartbeat_timeout,
