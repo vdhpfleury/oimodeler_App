@@ -20,7 +20,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/vdhpfleury/oimodeler_App/main/installer/install.ps1 | iex
 ```
 
-**Desktop shortcut.** => relaunch the app later without opening a terminal !
+**Desktop shortcut.** Relaunch the app later without opening a terminal !
 - **Linux:** an "OIModeler App" entry is added to your applications menu, and copied to `~/Desktop` if that folder exists. Some file managers (e.g. GNOME Files) require a one-time right-click → "Allow Launching" on a new desktop shortcut before double-click works — that's an OS security step, not a bug.
 - **macOS:** an `OIModeler App.command` file is placed on your Desktop; double-click it to relaunch.
 - **Windows:** an "OIModeler App" shortcut is added to your Desktop.
