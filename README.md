@@ -16,6 +16,7 @@ python3 --version
 git --version
 mkdir OimodelerApp
 cd OimodelerApp
+git clone https://github.com/vdhpfleury/oimodeler_App.git
 cd oimodeler_App
 ls
 pip install -r requirements.txt
