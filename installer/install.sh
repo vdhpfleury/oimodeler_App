@@ -139,7 +139,21 @@ cd "$APP_DIR"
 
 step 3 "Creating an isolated environment..."
 if [ ! -d "env_oim" ]; then
-  "$PYTHON_BIN" -m venv env_oim
+  if ! "$PYTHON_BIN" -m venv env_oim; then
+    fail "Could not create the virtual environment — see the error above."
+    echo
+    echo "      This usually means Python's venv module isn't installed"
+    echo "      alongside $PYTHON_BIN. Fix:"
+    case "$(uname -s)" in
+      Darwin) echo "        macOS:  brew reinstall python@3.11" ;;
+      Linux)  echo "        Linux:  sudo apt install python3.11-venv" ;;
+      *)      echo "        Any OS: reinstall Python from https://www.python.org/downloads/" ;;
+    esac
+    echo
+    echo "      Then run this installer again."
+    rm -rf env_oim
+    exit 1
+  fi
 fi
 # shellcheck disable=SC1091
 source env_oim/bin/activate
