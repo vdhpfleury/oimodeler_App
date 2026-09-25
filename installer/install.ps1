@@ -115,6 +115,14 @@ Set-Location $AppDir
 Write-Step 3 "Creating an isolated environment..."
 if (-not (Test-Path "env_oim")) {
     & $PythonCmd[0] $PythonCmd[1..($PythonCmd.Length - 1)] -m venv env_oim
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Could not create the virtual environment -- see the error above."
+        Write-Host ""
+        Write-Host "      Reinstall Python from https://www.python.org/downloads/ (check"
+        Write-Host "      'Add python.exe to PATH'), then run this installer again."
+        if (Test-Path "env_oim") { Remove-Item "env_oim" -Recurse -Force }
+        exit 1
+    }
 }
 & ".\env_oim\Scripts\Activate.ps1"
 Write-Ok "Environment ready ($AppDir\env_oim)"
