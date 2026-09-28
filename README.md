@@ -9,7 +9,7 @@ Simplest way to get in interferometric data modelisation !
 
  ## Quick Access 
 - Online version : [Oimodeler App](https://oimodeler-app.streamlit.app/)
-- Local version : **One Line Command** to install Oimodeler-App on your computer
+- Local version : **A single line command** to run on your terminal 
   
 Linux/macOS:
 ```bash

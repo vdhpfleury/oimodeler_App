@@ -54,6 +54,24 @@ desktop_dir() {
   fi
 }
 
+venv_fix_command() {
+  # $1 = short Python version, e.g. "3.11". Prints the command that would
+  # install venv support for that version, or returns 1 if no known package
+  # manager is available (caller falls back to a manual message).
+  local short_ver="$1"
+  if [ "$(uname -s)" = "Darwin" ]; then
+    echo "brew install python@$short_ver"
+  elif command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then
+    echo "sudo apt install -y python${short_ver}-venv"
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "sudo dnf install -y python${short_ver}"
+  elif command -v pacman >/dev/null 2>&1; then
+    echo "sudo pacman -S --noconfirm python"
+  else
+    return 1
+  fi
+}
+
 find_python() {
   local v c ver
   for v in "${SUPPORTED_VERSIONS[@]}"; do
@@ -139,7 +157,46 @@ cd "$APP_DIR"
 
 step 3 "Creating an isolated environment..."
 if [ ! -d "env_oim" ]; then
-  "$PYTHON_BIN" -m venv env_oim
+  if ! "$PYTHON_BIN" -m venv env_oim; then
+    rm -rf env_oim
+    fail "Could not create the virtual environment — see the error above."
+    SHORT_VER=$(printf '%s' "$PY_VERSION" | cut -d. -f1,2)
+    if FIX_CMD=$(venv_fix_command "$SHORT_VER"); then
+      echo
+      echo "      This usually means Python's venv module isn't installed"
+      echo "      alongside $PYTHON_BIN. This should fix it:"
+      echo
+      echo "        $FIX_CMD"
+      echo
+      printf "      Run it now? [y/N] "
+      read -r REPLY < /dev/tty || REPLY=""
+      case "$REPLY" in
+        [Yy]*)
+          if ! eval "$FIX_CMD"; then
+            fail "That command failed. Run it manually, then run this installer again."
+            exit 1
+          fi
+          ok "Installed. Retrying..."
+          if ! "$PYTHON_BIN" -m venv env_oim; then
+            rm -rf env_oim
+            fail "Still failing after installing it — see the error above."
+            fail "Fix it manually, then run this installer again."
+            exit 1
+          fi
+          ;;
+        *)
+          fail "Skipped. Run the command above yourself, then run this installer again."
+          exit 1
+          ;;
+      esac
+    else
+      echo
+      echo "      This usually means Python's venv module isn't installed"
+      echo "      alongside $PYTHON_BIN. Reinstall Python with venv support,"
+      echo "      then run this installer again."
+      exit 1
+    fi
+  fi
 fi
 # shellcheck disable=SC1091
 source env_oim/bin/activate
