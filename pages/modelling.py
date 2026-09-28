@@ -124,6 +124,7 @@ def _render_basic_model() -> None:
                             st.session_state.components[-1]["name"]
                             if st.session_state.components else None
                         )
+                        st.session_state.pop("active_comp_selectbox", None)
                         queue_flash("basic_model_flash", f"✅ Model **{model_to_load}** loaded for editing!")
                         st.rerun()
                     except InvalidInput as exc:
@@ -181,6 +182,7 @@ def _render_basic_model() -> None:
                     make_comp_dict(comp_type_sel, final, registry)
                 )
                 st.session_state.active_comp_name = final
+                st.session_state.pop("active_comp_selectbox", None)
                 log_event("Component added", f"{final} ({comp_type_sel})")
                 queue_flash("basic_model_flash", f"✅ Component **{final}** added.")
                 st.rerun()
@@ -282,20 +284,22 @@ def _render_basic_model() -> None:
 
     if st.session_state.active_comp_name not in names:
         st.session_state.active_comp_name = names[0]
+        st.session_state.pop("active_comp_selectbox", None)
 
     colD1, colD2 = st.columns([3, 1])
     with colD1:
         # Pre-seed the widget's own session_state entry from
-        # active_comp_name before instantiating it — passing a freshly
-        # computed `index=` alone isn't enough: once this selectbox's
-        # auto-generated key has been used before with the same `options`
-        # list (e.g. reloading a model whose component names are unchanged
-        # from an earlier working session), Streamlit's frontend keeps
-        # showing that earlier selection and ignores a new `index=` on
-        # subsequent reruns (same class of gotcha as the Reset-model
-        # text_input fix above).
+        # active_comp_name, but only when it isn't already set — every
+        # spot that changes active_comp_name programmatically (Load, Add,
+        # Delete, Reset, Import) pops this key first so the seed applies
+        # on their next render. Re-seeding on *every* run instead (as
+        # this used to do) stomped the user's own click: Streamlit already
+        # updates this key from the frontend before the script starts, so
+        # comparing it against the not-yet-updated active_comp_name looked
+        # indistinguishable from an external change and reverted the
+        # freshly picked value right back.
         active_key = "active_comp_selectbox"
-        if st.session_state.get(active_key) != st.session_state.active_comp_name:
+        if active_key not in st.session_state:
             st.session_state[active_key] = st.session_state.active_comp_name
         active_name = st.selectbox(
             "Select active component:",
@@ -304,7 +308,6 @@ def _render_basic_model() -> None:
         )
         if active_name != st.session_state.active_comp_name:
             st.session_state.active_comp_name = active_name
-            st.rerun()
         comp_active = get_comp_by_name(st.session_state.components, active_name)
         if comp_active:
             read_all_widgets(st.session_state.components)
@@ -320,6 +323,7 @@ def _render_basic_model() -> None:
                 st.session_state.active_comp_name = (
                     remaining[0] if remaining else None
                 )
+                st.session_state.pop("active_comp_selectbox", None)
                 log_event("Component removed", active_name)
                 queue_flash("basic_model_flash", f"✅ Component **{active_name}** deleted.")
                 st.rerun()
@@ -364,6 +368,7 @@ def _render_basic_model() -> None:
                           "Does not affect models already saved."):
             st.session_state.components = []
             st.session_state.active_comp_name = None
+            st.session_state.pop("active_comp_selectbox", None)
             # Bump the Model name widget's key suffix — see its own
             # comment above for why popping the old key alone isn't
             # enough to actually clear the displayed text.
@@ -464,6 +469,7 @@ def _render_model_import() -> None:
                         result['components'][0]['name']
                         if result['components'] else None
                     )
+                    st.session_state.pop("active_comp_selectbox", None)
                     n_comp     = len(result['components'])
                     comp_names = ', '.join(c['name'] for c in result['components'])
                     queue_flash(
