@@ -16,6 +16,7 @@ import numpy as np
 from services.data_service import get_oim, get_registry
 from core.validation import num, choice, InvalidInput
 from components.plots import safe_pyplot
+from components.memo import memoize
 
 logger = logging.getLogger(__name__)
 
@@ -177,19 +178,35 @@ def render() -> None:
                 extent_half = img_dim * px_size / 2
                 extent = [extent_half, -extent_half, -extent_half, extent_half]
 
-                try:
-                    im = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=False)
-                    if not np.any(im) or not np.all(np.isfinite(im)):
-                        # Some component classes (e.g. radial-profile-based
-                        # ones like oimTempGrad) don't implement a direct
-                        # image and silently fall back to an all-zero stub
-                        # instead of raising — treat that the same as an
-                        # error so the fromFT=True fallback actually runs.
-                        raise ValueError("direct image unavailable or degenerate")
-                except Exception:
-                    # fromFT=False fails for some components (no analytic
-                    # image) — fall back to the Fourier-transform path.
-                    im = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=True)
+                def _compute_explorer_image():
+                    try:
+                        im = mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=False)
+                        if not np.any(im) or not np.all(np.isfinite(im)):
+                            # Some component classes (e.g. radial-profile-based
+                            # ones like oimTempGrad) don't implement a direct
+                            # image and silently fall back to an all-zero stub
+                            # instead of raising — treat that the same as an
+                            # error so the fromFT=True fallback actually runs.
+                            raise ValueError("direct image unavailable or degenerate")
+                        return im
+                    except Exception:
+                        # fromFT=False fails for some components (no analytic
+                        # image) — fall back to the Fourier-transform path.
+                        return mdl.getImage(img_dim, px_size, wl=wl_val, fromFT=True)
+
+                # This page's whole render() runs on every Streamlit rerun
+                # triggered *anywhere* in the app, not just when Component
+                # Explorer is the visible tab (app.py's st.tabs() runs every
+                # page's render() every rerun — see its own docstring).
+                # img_dim/b_n can go up to 1024/1000, so this is worth
+                # memoizing the same way as Modelling's image preview and
+                # Fitting's result tabs; gamma/clip/cmap only affect the
+                # cheap display step below.
+                im = memoize(
+                    "explorer_image",
+                    (selected_comp, repr(visu_params), img_dim, px_size, wl_val),
+                    _compute_explorer_image,
+                )
 
                 display_im = im ** gamma
                 vmin, vmax = np.percentile(display_im, [clip_lo, clip_hi])
@@ -229,9 +246,18 @@ def render() -> None:
                 # np.nan_to_num(..., nan=1), the true V(0)=1 limit, but
                 # numpy still warns on the underlying division. Silenced
                 # here since the result is right; not silenced globally.
-                with np.errstate(invalid='ignore', divide='ignore'):
-                    ccf_ew = mdl.getComplexCoherentFlux(spf, zeros, wl=vb_wl_val)
-                    ccf_ns = mdl.getComplexCoherentFlux(zeros, spf, wl=vb_wl_val)
+                def _compute_explorer_ccf():
+                    with np.errstate(invalid='ignore', divide='ignore'):
+                        return (
+                            mdl.getComplexCoherentFlux(spf, zeros, wl=vb_wl_val),
+                            mdl.getComplexCoherentFlux(zeros, spf, wl=vb_wl_val),
+                        )
+
+                ccf_ew, ccf_ns = memoize(
+                    "explorer_ccf",
+                    (selected_comp, repr(visu_params), b_max, b_n, vb_wl_val),
+                    _compute_explorer_ccf,
+                )
 
                 v_ew = np.abs(ccf_ew)
                 v_ns = np.abs(ccf_ns)

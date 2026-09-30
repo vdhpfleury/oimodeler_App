@@ -54,6 +54,7 @@ from core.model_export import model_to_txt
 from core.validation import num, choice, choices, InvalidInput
 from components.plots import plot_flux_decomposition, copy_axes_lines, safe_pyplot
 from components.flash import queue_flash, show_pending_flash
+from components.memo import memoize
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +494,24 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
 
     try:
         data.useFilter = True
-        decomp = decompose_model_flux(oim, r['best_chi2_model'], data)
+        # decompose_model_flux()/extract_model_image() each build and
+        # compute() one oimSimulator per model component — the dominant
+        # cost on this tab, otherwise redone on every Streamlit rerun
+        # triggered *anywhere* in the app for as long as this result stays
+        # displayed (app.py's st.tabs() runs every page's render() every
+        # rerun, not just the visible one). r['best_chi2_model'] is set
+        # once when the fit completes and never reassigned afterwards, so
+        # its id() is a safe, cheap signature; the active dataset/filters
+        # are included too since decompose_model_flux() depends on `data`.
+        decomp_sig = (
+            id(r['best_chi2_model']),
+            tuple(sorted(st.session_state.get('selected_files', []))),
+            repr(st.session_state.get('applied_filters', [])),
+        )
+        decomp = memoize(
+            "chi2_flux_decomp", decomp_sig,
+            lambda: decompose_model_flux(oim, r['best_chi2_model'], data),
+        )
 
         # One panel per data type actually used for this fit (r['dtypes'])
         # — previously hardcoded to VIS2DATA + T3PHI regardless of what
@@ -504,7 +522,10 @@ def _render_chi2(oim, registry, data, model_to_use: str) -> None:
                 [dtype], xunit="cycle/mas", kwargsData=dict(color="byBaseline"))[1][0])
             for dtype in r['dtypes']
         ]
-        d_img   = extract_model_image(oim, r['best_chi2_model'])
+        d_img = memoize(
+            "chi2_model_image", id(r['best_chi2_model']),
+            lambda: extract_model_image(oim, r['best_chi2_model']),
+        )
         fig_flux = plot_flux_decomposition(decomp, data)
         ax_flux_src = fig_flux.axes[0]
         plt.close('all')
@@ -824,6 +845,15 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
 # Emcee
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _build_computed_simulator(oim, data, model):
+    """oim.oimSimulator(data=data, model=model) with its simulated data
+    already computed — a plain function (not a lambda) so it can wrap the
+    two-statement sequence for components.memo.memoize()'s compute arg."""
+    sim = oim.oimSimulator(data=data, model=model)
+    sim.compute(computeChi2=False, computeSimulatedData=True)
+    return sim
+
+
 def _render_emcee(oim, registry, data, model_to_use: str) -> None:
     st.markdown("### B — Emcee MCMC")
 
@@ -1117,8 +1147,24 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                     panel_settings.append((dtype, yscale, ymin, ymax))
         with col_g:
             try:
-                sim_plot = oim.oimSimulator(data=data, model=er['best_emcee_model'])
-                sim_plot.compute(computeChi2=False, computeSimulatedData=True)
+                # oimSimulator(...).compute() over the full dataset is the
+                # dominant cost on this tab — memoized for the same reason
+                # as the chi2 flux-decomposition above (see its comment).
+                # er['best_emcee_model'] is set once on fit completion and
+                # never reassigned afterwards, so id() is a safe signature;
+                # axis-control widgets are deliberately excluded since they
+                # only affect the cheap set_xlim/set_ylim calls below, not
+                # sim_plot.plot() itself.
+                sim_sig = (
+                    id(er['best_emcee_model']),
+                    tuple(sorted(st.session_state.get('selected_files', []))),
+                    repr(st.session_state.get('applied_filters', [])),
+                    tuple(plot_dtypes),
+                )
+                sim_plot = memoize(
+                    "emcee_data_vs_model_sim", sim_sig,
+                    lambda: _build_computed_simulator(oim, data, er['best_emcee_model']),
+                )
                 fig_0, ax_0 = sim_plot.plot(plot_dtypes)
 
                 for i, (dtype, yscale, ymin, ymax) in enumerate(panel_settings):
@@ -1167,10 +1213,18 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
                 img_scale = num(img_scale_raw, 0.1, 10.0, "Scale")
                 wl_val = num(wl_val_raw, 0.1, 30.0, "Wavelength") * 1e-6
 
-                img_data    = extract_model_image(oim, er['best_emcee_model'],
-                                                  img_size=img_size,
-                                                  img_scale=img_scale,
-                                                  wl_value=wl_val)
+                # extract_model_image()'s FFT synthesis is the dominant
+                # cost here — memoized, keyed on exactly what feeds the
+                # array itself (img_size/img_scale/wl_val); gamma/cmap/
+                # clip only affect the cheap display step below.
+                img_data = memoize(
+                    "emcee_model_image",
+                    (id(er['best_emcee_model']), img_size, img_scale, wl_val),
+                    lambda: extract_model_image(
+                        oim, er['best_emcee_model'],
+                        img_size=img_size, img_scale=img_scale, wl_value=wl_val,
+                    ),
+                )
                 display_img = img_data[0, 0] ** img_gamma
                 extent_half = img_size * img_scale / 2
 
@@ -1208,7 +1262,15 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
         st.caption("No adjustable parameters.")
         try:
             data.useFilter = True
-            decomp_em = decompose_model_flux(oim, er['best_emcee_model'], data)
+            decomp_em_sig = (
+                id(er['best_emcee_model']),
+                tuple(sorted(st.session_state.get('selected_files', []))),
+                repr(st.session_state.get('applied_filters', [])),
+            )
+            decomp_em = memoize(
+                "emcee_flux_decomp", decomp_em_sig,
+                lambda: decompose_model_flux(oim, er['best_emcee_model'], data),
+            )
             fig_flux_em = plot_flux_decomposition(decomp_em, data)
             safe_pyplot(st, fig_flux_em, use_container_width=True)
         except Exception as exc:
@@ -1222,9 +1284,18 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             f"χ² lim factor={er.get('chi2limfact', 20)})."
         )
         try:
-            fw, _ = er['lmfit'].walkersPlot(
-                discard=er.get('discard', 0), thin=er.get('thin', 1),
-                chi2limfact=er.get('chi2limfact', 20),
+            # walkersPlot() reads the full (discard/thin-filtered) chain
+            # from the HDF5-backed sampler — memoized on exactly what it
+            # depends on (the fitter object + the three refine params;
+            # "No adjustable parameters" elsewhere on this tab doesn't
+            # apply here, these three do matter).
+            walk_sig = (id(er['lmfit']), er.get('discard', 0), er.get('thin', 1), er.get('chi2limfact', 20))
+            fw, _ = memoize(
+                "emcee_walkers_plot", walk_sig,
+                lambda: er['lmfit'].walkersPlot(
+                    discard=er.get('discard', 0), thin=er.get('thin', 1),
+                    chi2limfact=er.get('chi2limfact', 20),
+                ),
             )
             safe_pyplot(st, fw, use_container_width=True)
         except Exception as exc:
@@ -1242,9 +1313,13 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
             # kwarg that cornerPlot's **kwargs silently swallowed — the
             # plot always used its hardcoded default chi2limfact=20,
             # never the 5 this call intended).
-            fc, _ = er['lmfit'].cornerPlot(
-                discard=er.get('discard', 0), thin=er.get('thin', 1),
-                chi2limfact=er.get('chi2limfact', 20),
+            corner_sig = (id(er['lmfit']), er.get('discard', 0), er.get('thin', 1), er.get('chi2limfact', 20))
+            fc, _ = memoize(
+                "emcee_corner_plot", corner_sig,
+                lambda: er['lmfit'].cornerPlot(
+                    discard=er.get('discard', 0), thin=er.get('thin', 1),
+                    chi2limfact=er.get('chi2limfact', 20),
+                ),
             )
             safe_pyplot(st, fc, use_container_width=True)
         except Exception as exc:
@@ -1352,9 +1427,25 @@ def _all_models_as_txt(registry) -> dict[str, str]:
     """Every model saved this session, in the normalized .txt format
     (core/model_export.py) importable back via Modelling > Import model —
     bundled into every result zip so a download carries the full model
-    library, not just the one model this particular fit used."""
-    return {
-        f"models/{name}.txt": model_to_txt(model_dict, registry)
-        for name, model_dict in st.session_state.MODEL.items()
-    }
+    library, not just the one model this particular fit used.
+
+    Called from every populated result section (chi2/grid/emcee) on
+    every rerun (see their own memoize() comments for why) — memoized
+    here so it scales with how often the model *library* actually
+    changes, not with how many times any result tab happens to render.
+    Saving a model always assigns a fresh dict to st.session_state.
+    MODEL[name] (pages/modelling.py never mutates an existing entry in
+    place), so id()-per-name is a safe, cheap signature of "did any
+    model actually change since last time".
+    """
+    models_sig = tuple(sorted(
+        (name, id(model_dict)) for name, model_dict in st.session_state.MODEL.items()
+    ))
+    return memoize(
+        "all_models_as_txt", models_sig,
+        lambda: {
+            f"models/{name}.txt": model_to_txt(model_dict, registry)
+            for name, model_dict in st.session_state.MODEL.items()
+        },
+    )
 
