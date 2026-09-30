@@ -1,4 +1,15 @@
-git+https://github.com/oimodeler/oimodeler.git
+# Pinned to a specific commit (== version 0.9.24), not just "main" —
+# supply-chain hardening (docs/security_audit_2026-09.md V14): oimodeler
+# has no PyPI release recent enough to use (PyPI only has 0.8.1) and isn't
+# tagged at every version bump, so an unpinned `git+https://...oimodeler
+# .git` silently tracked whatever landed on `main` at install time —
+# every rebuild could embark different upstream code, with no way to
+# know what changed, and an upstream compromise would propagate
+# immediately. This exact commit is the one every test in this repo
+# (tests/, and every live Playwright verification pass) has actually
+# been run against. Bump deliberately, re-verifying core/registry.py's
+# assumptions against the new commit, not by just dropping the pin again.
+git+https://github.com/oimodeler/oimodeler.git@0b2bf5dacfbf61f8ba83a1e064ff8e664ed9d4fc
 streamlit==1.48.1
 altair==5.5.0
 astropy==7.1.0
