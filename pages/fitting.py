@@ -807,16 +807,6 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
         applied_filters=st.session_state.get("applied_filters", []),
         registry=registry,
     )
-    zip_bytes = build_results_zip(
-        param_table=tbl_grid,
-        code=code,
-        figures={"chi2_map": fig_map},
-        extra_files={
-            "grid_chi2map.csv": grid_csv,
-            "activity_log.txt": get_log_text(),
-            **_all_models_as_txt(registry),
-        },
-    )
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(r['model_to_use']))[:100] or "model"
 
     # ── Save / Download — same row, below table + map ───────────────────
@@ -830,14 +820,20 @@ def _render_grid(oim, registry, data, model_to_use: str) -> None:
             st.success(f"Model **Best_Grid_{r['model_to_use']}** saved!")
             log_event("Best model saved", f"Best_Grid_{r['model_to_use']}")
     with col_dl:
-        st.download_button(
-            "📦 Download results (zip)",
-            data=zip_bytes,
+        _render_zip_download(
+            zip_key=f"grid_zip_{id(r)}",
+            build_fn=lambda: build_results_zip(
+                param_table=tbl_grid,
+                code=code,
+                figures={"chi2_map": fig_map},
+                extra_files={
+                    "grid_chi2map.csv": grid_csv,
+                    "activity_log.txt": get_log_text(),
+                    **_all_models_as_txt(registry),
+                },
+            ),
             file_name=f"grid_results_{safe_model_name}.zip",
-            mime="application/zip",
-            use_container_width=True,
-            on_click=lambda: log_event("Results zip downloaded", f"grid model={r['model_to_use']}"),
-            key="download_grid_zip",
+            log_detail=f"grid model={r['model_to_use']}",
         )
 
 
@@ -1327,30 +1323,27 @@ def _render_emcee(oim, registry, data, model_to_use: str) -> None:
 
     # ── Download all results as a zip ───────────────────────────────────
     st.markdown("---")
-    zip_bytes = build_results_zip(
-        param_table=tbl_em,
-        code=code,
-        figures={
-            "data_fit_plot": fig_0,
-            "model_image":   fig_img,
-            "walkers_plot":  fw,
-            "corner_plot":   fc,
-        },
-        extra_files={
-            "activity_log.txt": get_log_text(),
-            **_all_models_as_txt(registry),
-        },
-    )
     # model_to_use comes from a selectbox — its widget option list isn't
     # server-enforced, so sanitize before using it in a client-facing filename.
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]', '_', str(er['model_to_use']))[:100] or "model"
-    st.download_button(
-        "📦 Download results (zip)",
-        data=zip_bytes,
+    _render_zip_download(
+        zip_key=f"emcee_zip_{id(er)}",
+        build_fn=lambda: build_results_zip(
+            param_table=tbl_em,
+            code=code,
+            figures={
+                "data_fit_plot": fig_0,
+                "model_image":   fig_img,
+                "walkers_plot":  fw,
+                "corner_plot":   fc,
+            },
+            extra_files={
+                "activity_log.txt": get_log_text(),
+                **_all_models_as_txt(registry),
+            },
+        ),
         file_name=f"emcee_results_{safe_model_name}.zip",
-        mime="application/zip",
-        use_container_width=True,
-        on_click=lambda: log_event("Results zip downloaded", f"emcee model={er['model_to_use']}"),
+        log_detail=f"emcee model={er['model_to_use']}",
     )
 
 
@@ -1408,6 +1401,46 @@ def _render_model_summary(model_to_use: str) -> None:
                 })
             st.markdown(f"**{c['name']}** ({c['type']})")
             st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_zip_download(zip_key: str, build_fn, file_name: str, log_detail: str) -> None:
+    """Button-triggered results-archive generation, in place of the old
+    automatic-on-every-rerun build: build_results_zip() PNG-encodes every
+    embedded figure and zip-compresses the result — real, non-trivial CPU
+    work even with the underlying data itself now memoized (see the perf
+    audit) — so it's wasteful to redo it on every Streamlit rerun
+    triggered *anywhere* in the app when the user may never click
+    Download at all. Generates once on click (with a spinner so a slow
+    build reads as "working", not "frozen"), then serves the same bytes
+    from session_state on any later rerun without rebuilding.
+
+    `zip_key` should embed the underlying result object's id() (it
+    changes identity on every newly completed fit — see the memoize()
+    calls elsewhere on this page for the same reasoning) so a stale zip
+    from a previous fit is never offered for download; re-running
+    "Refine results" doesn't reassign that object, so a previously
+    prepared zip stays offered as-is until the user clicks Prepare again
+    to pick up the new discard/thin/χ² lim factor.
+    """
+    if st.button("📦 Prepare results archive (zip)", use_container_width=True, key=f"{zip_key}_prepare"):
+        with st.spinner("Preparing your results archive — this can take a moment for a large fit…"):
+            st.session_state[zip_key] = build_fn()
+    zip_bytes = st.session_state.get(zip_key)
+    if zip_bytes is not None:
+        st.download_button(
+            "⬇️ Download results (zip)",
+            data=zip_bytes,
+            file_name=file_name,
+            mime="application/zip",
+            use_container_width=True,
+            on_click=lambda: log_event("Results zip downloaded", log_detail),
+            key=f"{zip_key}_download",
+        )
+    else:
+        st.caption(
+            "Click **Prepare results archive** above to generate a "
+            "downloadable zip of these results."
+        )
 
 
 def _grid_map_to_csv(gfit, axes: list[dict]) -> str:
