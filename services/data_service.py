@@ -124,6 +124,35 @@ def build_filters_from_specs(applied_filters: list[dict]):
     return filters
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 5. Modelling page's live image preview — cache the expensive FFT part
+# ═══════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(max_entries=50, show_spinner=False)
+def compute_model_image_array(comp_list: list, fov: int, px_size: float, wl: float):
+    """
+    Cached wrapper around core.model_builder.build_model_image_array() —
+    the FFT image synthesis behind the Modelling page's "Basic Model"
+    live preview.
+
+    Why this needs caching specifically: app.py's st.tabs() runs every
+    page's render() on *every* Streamlit rerun, not just the active tab
+    (see its own docstring) — so without this cache, adding a component
+    on Modelling, then merely typing in an unrelated field on the Data or
+    Fitting tab, silently re-ran this FFT synthesis for the *entire*
+    current model each time, with the cost growing as the user's model
+    grows over the session. cache_data (not cache_resource): the return
+    value is a plain numpy array, safe to copy/share across cache hits.
+
+    comp_list is Streamlit-hashable as-is (a list of dicts of
+    str/float/bool/tuple/list — no live oimodeler objects ever end up in
+    it, by the same session_state convention documented in
+    services/storage.py and core/fit_worker.py).
+    """
+    from core.model_builder import build_model_image_array  # noqa: PLC0415
+    return build_model_image_array(get_oim(), get_registry(), comp_list, fov, px_size, wl)
+
+
 @st.cache_data(ttl=3600, max_entries=50)
 def get_filter_metadata(filepath: str, display_name: str):
     """

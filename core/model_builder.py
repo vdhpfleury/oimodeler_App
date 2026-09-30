@@ -74,22 +74,40 @@ def build_oim_model(oim, registry: dict, comp_list: list):
     return oim.oimModel(*instances)
 
 
-def generate_model_image_preview(oim, registry: dict, comp_list: list, fov:int=128, px_size:float=0.15, gamma:float=0.2, wl:float=3.5e-6, clip_percentile: tuple[float, float] | None = (0.5, 99.5)) -> plt.Figure | None:
+def build_model_image_array(oim, registry: dict, comp_list: list, fov: int = 128,
+                            px_size: float = 0.15, wl: float = 3.5e-6) -> np.ndarray | None:
     """
-    Génère une figure matplotlib d'aperçu du modèle (image FT).
-    Retourne None si le modèle ne peut pas être construit.
+    Calcule l'image FT brute (avant gamma/colormap) du modèle — la partie
+    coûteuse (synthèse FFT) de l'aperçu Basic Model. Retourne None si le
+    modèle ne peut pas être construit.
+
+    Séparée de render_model_image_figure() pour permettre au caller
+    Streamlit (services/data_service.compute_model_image_array) de mettre
+    seulement CE calcul en cache : gamma/clip_percentile ne changent que
+    l'affichage, pas besoin de refaire la FFT quand seuls ces réglages
+    bougent, et surtout ce calcul n'a sinon aucune raison d'être refait à
+    chaque rerun Streamlit déclenché ailleurs dans l'app (voir
+    app.py: st.tabs() exécute les 5 onglets à chaque rerun).
+    """
+    model = build_oim_model(oim, registry, comp_list)
+    if model is None:
+        return None
+    return model.getImage(fov, px_size, wl=wl, fromFT=True)
+
+
+def render_model_image_figure(im: np.ndarray, fov: int, px_size: float, gamma: float = 0.2,
+                              clip_percentile: tuple[float, float] | None = (0.5, 99.5)) -> plt.Figure:
+    """
+    Construit la figure matplotlib d'aperçu à partir d'une image déjà
+    calculée (build_model_image_array) — toujours bon marché (gamma +
+    percentile + imshow sur un petit tableau), donc jamais mis en cache :
+    seule la synthèse FFT en amont l'est.
 
     clip_percentile : (lo, hi) optionnel, en % — vmin/vmax du colormap sont
         calculés sur l'image (après gamma) via np.percentile(), indépendamment
         de la correction gamma. None désactive le clipping.
     """
-    model = build_oim_model(oim, registry, comp_list)
-    if model is None:
-        return None
-
-
     tot_size = int(fov * 0.5 * px_size)
-    im = model.getImage(fov, px_size, wl=wl, fromFT=True)
     display_im = im ** gamma
 
     vmin = vmax = None
@@ -108,6 +126,20 @@ def generate_model_image_preview(oim, registry: dict, comp_list: list, fov:int=1
     ax.set_ylabel('ΔDec (mas)', fontsize=6)
     ax.tick_params(axis='both', labelsize=6)
     return fig
+
+
+def generate_model_image_preview(oim, registry: dict, comp_list: list, fov:int=128, px_size:float=0.15, gamma:float=0.2, wl:float=3.5e-6, clip_percentile: tuple[float, float] | None = (0.5, 99.5)) -> plt.Figure | None:
+    """
+    Génère une figure matplotlib d'aperçu du modèle (image FT), sans mise
+    en cache — utilisé par les callers qui n'ont pas besoin de séparer le
+    calcul du rendu (ex. tests). pages/modelling.py appelle plutôt
+    services/data_service.compute_model_image_array() + directement
+    render_model_image_figure() pour bénéficier du cache.
+    """
+    im = build_model_image_array(oim, registry, comp_list, fov, px_size, wl)
+    if im is None:
+        return None
+    return render_model_image_figure(im, fov, px_size, gamma, clip_percentile)
 
 
 def generate_model_v2_t3phi_preview(oim, registry: dict, comp_list: list, data, V2_Y_min: float=0., V2_Y_max: float=1., T3PHI_Y_min: float=-180., T3PHI_Y_max: float=180.,  ) -> plt.Figure | None:

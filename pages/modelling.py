@@ -13,10 +13,12 @@ Tabs :
 Dépendances :
     services/data_service.py  → get_oim(), get_registry(), load_oifits()
     core/component.py         → make_comp_dict(), get_comp_by_name()
-    core/model_builder.py     → build_oim_model(), generate_model_image_preview(),
+    core/model_builder.py     → build_oim_model(), render_model_image_figure(),
                                  generate_model_v2_t3phi_preview()
+    services/data_service.py  → compute_model_image_array() (cached FFT synthesis)
     core/csv_import.py        → parse_csv_to_model()
-    components/param_editor.py→ render_param_editor(), read_all_widgets()
+    components/param_editor.py→ render_param_editor(), read_all_widgets(),
+                                 clear_param_widget_keys()
     components/plots.py       → safe_pyplot()
 """
 from __future__ import annotations
@@ -28,12 +30,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from services.data_service import get_oim, get_registry, get_active_data
+from services.data_service import get_oim, get_registry, get_active_data, compute_model_image_array
 from services.activity_log import log_event
 from core.component import make_comp_dict, get_comp_by_name
 from core.model_builder import (
     build_oim_model,
-    generate_model_image_preview,
+    render_model_image_figure,
     generate_model_v2_t3phi_preview,
 )
 from core.csv_import import (
@@ -44,7 +46,7 @@ from core.model_export import EXTERNAL_WRITER_SNIPPET
 from core.interp_registry import INTERP_REGISTRY, get_fittable_layout
 from core.normalization import validate_normalization_refs
 from core.validation import num, choice, choices, text, InvalidInput
-from components.param_editor import render_param_editor, read_all_widgets
+from components.param_editor import render_param_editor, read_all_widgets, clear_param_widget_keys
 from components.plots import safe_pyplot
 from components.flash import queue_flash, show_pending_flash
 
@@ -109,6 +111,8 @@ def _render_basic_model() -> None:
                         # as-is instead of raising — re-validate (V4).
                         model_to_load = choice(model_to_load_raw, model_names, "Model to load")
                         loaded = st.session_state.MODEL[model_to_load]
+                        for c in st.session_state.components:
+                            clear_param_widget_keys(c)
                         st.session_state.components = [
                             {
                                 **c,
@@ -233,11 +237,21 @@ def _render_basic_model() -> None:
                             min(max(float(model_preview_clip_hi_raw), 0.), 100.),
                         ))
 
-                        fig = generate_model_image_preview(
-                            oim, registry, st.session_state.components, model_preview_img_fov, model_preview_img_pxsize, model_preview_img_gamma, model_preview_img_wl*1e-6,
-                            clip_percentile=(clip_lo, clip_hi),
+                        # The FFT synthesis is cached (services/data_service.
+                        # compute_model_image_array) — it would otherwise
+                        # re-run on every Streamlit rerun triggered *anywhere*
+                        # in the app (st.tabs() runs all 5 tabs every time),
+                        # not just when this model actually changes. Only the
+                        # cheap gamma/colormap rendering below runs fresh.
+                        im = compute_model_image_array(
+                            st.session_state.components, model_preview_img_fov,
+                            model_preview_img_pxsize, model_preview_img_wl*1e-6,
                         )
-                        if fig:
+                        if im is not None:
+                            fig = render_model_image_figure(
+                                im, model_preview_img_fov, model_preview_img_pxsize,
+                                model_preview_img_gamma, clip_percentile=(clip_lo, clip_hi),
+                            )
                             safe_pyplot(st, fig, use_container_width=False)
                     except InvalidInput as exc:
                         st.warning(str(exc))
@@ -315,6 +329,8 @@ def _render_basic_model() -> None:
     with colD2:
         if st.session_state.components:
             if st.button("🗑️ Delete", type="primary", use_container_width=True):
+                if comp_active:
+                    clear_param_widget_keys(comp_active)
                 st.session_state.components = [
                     c for c in st.session_state.components
                     if c['name'] != active_name
@@ -366,6 +382,8 @@ def _render_basic_model() -> None:
         if st.button("🧹 Reset model", type="primary", use_container_width=True,
                      help="Clear every component below to start a new model from scratch. "
                           "Does not affect models already saved."):
+            for c in st.session_state.components:
+                clear_param_widget_keys(c)
             st.session_state.components = []
             st.session_state.active_comp_name = None
             st.session_state.pop("active_comp_selectbox", None)
@@ -462,6 +480,8 @@ def _render_model_import() -> None:
                         or model_file.name.rsplit(".", 1)[0]
                     )
                     st.session_state.MODEL[target_name] = result
+                    for c in st.session_state.components:
+                        clear_param_widget_keys(c)
                     st.session_state.components = [
                         dict(c) for c in result['components']
                     ]

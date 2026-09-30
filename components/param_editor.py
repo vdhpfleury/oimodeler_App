@@ -89,3 +89,23 @@ def read_all_widgets(components: list[dict]) -> None:
     """Lit les widgets pour tous les composants de la liste."""
     for comp in components:
         _read_widget_values(comp)
+
+
+def clear_param_widget_keys(comp: dict) -> None:
+    """Pops this component's init/min/max/free widget entries from
+    session_state (call when it's deleted, or before a model reset).
+
+    Streamlit never does this on its own: a widget's session_state entry
+    lives for as long as the browser session, whether or not that widget
+    is still instantiated on later reruns (see the Reset-model text_input
+    comment elsewhere in this codebase for the same underlying gotcha).
+    Without this, repeatedly adding/deleting/resetting components while
+    exploring a model — an entirely normal interactive workflow — leaves
+    a permanently growing pile of orphaned entries in session_state for
+    the rest of the browser session.
+    """
+    for param in comp['params']:
+        st.session_state.pop(f"{comp['name']}_{param}_init", None)
+        st.session_state.pop(f"{comp['name']}_{param}_min",  None)
+        st.session_state.pop(f"{comp['name']}_{param}_max",  None)
+        st.session_state.pop(f"{comp['name']}_{param}_free", None)
