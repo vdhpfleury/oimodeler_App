@@ -1079,7 +1079,31 @@ def _render_model_summary() -> None:
             st.error("Cannot build model.")
             return
 
-        sim = oim.oimSimulator(data=data, model=_model)
+        # oim.oimSimulator(...)'s __init__ eagerly runs a full chi2 +
+        # simulated-data computation over the WHOLE active dataset — by
+        # far the most expensive step on this tab, and one that would
+        # otherwise redo that work on every Streamlit rerun triggered
+        # *anywhere* in the app (app.py's st.tabs() runs every page's
+        # render() every rerun, not just the active tab — see its own
+        # docstring), regardless of whether this tab is even visible.
+        # Memoized here on a signature of what actually changes the
+        # result — rebuilt only when the selected model's content or the
+        # active dataset/filters actually change. Safe to reuse: .plot()/
+        # .plotWlTemplate() below only ever read sim's already-computed
+        # data, never mutate it (verified against the installed oimodeler).
+        sim_sig = (
+            selected,
+            repr(st.session_state.MODEL[selected]["components"]),
+            tuple(sorted(st.session_state.get('selected_files', []))),
+            repr(st.session_state.get('applied_filters', [])),
+        )
+        cached = st.session_state.get('_model_summary_sim_cache')
+        if cached is not None and cached[0] == sim_sig:
+            sim = cached[1]
+        else:
+            sim = oim.oimSimulator(data=data, model=_model)
+            st.session_state['_model_summary_sim_cache'] = (sim_sig, sim)
+
         st.write(r"$\chi²$ : " + f"{sim.chi2r:.2f}")
         st.write(sim.model)
 
