@@ -4,3 +4,8 @@ __pycache__/
 env_oim/
 .venv/
 venv/
+*egg*
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml

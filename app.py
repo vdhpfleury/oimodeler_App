@@ -10,6 +10,7 @@ Responsabilités de ce fichier (et seulement celles-ci) :
 
 Tout le reste est délégué aux pages/ et aux couches inférieures.
 """
+
 # app.py
 import sys
 from pathlib import Path
@@ -51,7 +52,7 @@ def main() -> None:
     # A correct version would need each page's render() split into a cheap
     # "gate" part (always run) and an expensive "compute" part (fragment-
     # scoped) — real surgery across every page, not attempted here.
-    plt.close('all')
+    plt.close("all")
 
     # ── 1. Configuration de la page (DOIT être le premier appel Streamlit) ──
     st.set_page_config(
@@ -63,11 +64,13 @@ def main() -> None:
 
     # ── 2. Initialisation centralisée du session_state ──────────────────────
     from services.session import init_session_state
+
     init_session_state()
 
     # ── 3. Vérification de oimodeler (lazy import via service) ──────────────
     try:
         from services.data_service import get_oim
+
         get_oim()  # déclenche le chargement une seule fois
     except ImportError:
         st.error("oimodeler is not installed. Install it with: pip install oimodeler")
@@ -80,21 +83,23 @@ def main() -> None:
     #
     # Option A conservée ici pour compatibilité avec l'existant :
 
-    from pages.overview    import render as render_overview
-    from pages.explorer    import render as render_explorer
-    from pages.data        import render as render_data
-    from pages.modelling   import render as render_modelling
-    from pages.fitting     import render as render_fitting
+    from pages.overview import render as render_overview
+    from pages.explorer import render as render_explorer
+    from pages.data import render as render_data
+    from pages.modelling import render as render_modelling
+    from pages.fitting import render as render_fitting
 
     st.image("./images/logo.png")
 
-    tab_home, tab_visu, tab_data, tab_model, tab_fit = st.tabs([
-        "📋 Overview",
-        "🔬 Component Explorer",
-        "📂 Data",
-        "⚙️ Modelling",
-        "📐 Fitting",
-    ])
+    tab_home, tab_visu, tab_data, tab_model, tab_fit = st.tabs(
+        [
+            "📋 Overview",
+            "🔬 Component Explorer",
+            "📂 Data",
+            "⚙️ Modelling",
+            "📐 Fitting",
+        ]
+    )
 
     with tab_home:
         render_overview()
